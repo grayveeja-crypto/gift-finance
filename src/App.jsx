@@ -146,7 +146,12 @@ function parseHoldings(raw) {
       if(!code||!value) return null;
       const rawD=pn(r["Daily Return %"]||r["daily_return"]||0);
       const rawT=pn(r["Unrealized Gain/Loss %"]||r["total_return"]||0);
-      return { code, name:String(r["Name"]||r["Fund Name"]||code).trim(), type:String(r["Category"]||r["Portfolio"]||"Retirement").trim(), cls:String(r["Asset Class"]||r["asset_class"]||"").trim(), value, cost:pn(r["Cost Basis"]||r["cost_basis"]||0), nav:pn(r["NAV"]||0), units:pn(r["Units"]||0), dailyPct:rawD, totalPct:Math.abs(rawT)<2?rawT*100:rawT };
+      // Type: "Personal Investments" or "Retirement Portfolio" from sheet
+      const rawType=String(r["Category"]||r["Portfolio"]||r["Type"]||"Retirement").trim();
+      const type=rawType; // keep full string, filter uses .includes()
+      // Name: use only the Fund code column, not a combined name
+      const name=String(r["Name"]||r["Fund Name"]||code).trim();
+      return { code, name, type, cls:String(r["Asset Class"]||r["asset_class"]||"").trim(), value, cost:pn(r["Cost Basis"]||r["cost_basis"]||0), nav:pn(r["NAV"]||0), units:pn(r["Units"]||0), dailyPct:rawD, totalPct:Math.abs(rawT)<2?rawT*100:rawT };
     }).filter(Boolean);
     if(p.length) return p;
   }
@@ -201,19 +206,61 @@ function parseCF(raw) {
 const MO=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 function parseSpending(raw) {
   if(!raw||typeof raw!=="object") return null;
-  const mks=Object.keys(raw).filter(k=>k.match(/^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s*\d{4}$/i)).sort((a,b)=>{const[am,ay]=a.split(" "),[bm,by]=b.split(" ");return(+ay-+by)||(MO.indexOf(am.slice(0,3))-MO.indexOf(bm.slice(0,3)));});
-  if(mks.length){
-    return mks.map(k=>{
-      const rawTab=raw[k]; if(!rawTab) return null;
-      const {budget,income}=extractBI(rawTab);
-      const objs=s2o(rawTab); if(!objs.length) return null;
-      const txns=objs.map(r=>{ const amt=pn(r["AMOUNT (฿)"]||r["Amount (฿)"]||r["AMOUNT"]||r["Amount"]||r["amount"]||0); if(!amt) return null; return { date:String(r["DATE"]||r["Date"]||k).trim(), cat:String(r["CATEGORY"]||r["Category"]||"Other").trim(), desc:String(r["DESCRIPTION"]||r["Description"]||"").trim(), amount:amt, method:String(r["PAYMENT METHOD"]||r["Payment Method"]||"").trim() }; }).filter(Boolean);
+
+  const mks=Object.keys(raw)
+    .filter(k=>k.match(/^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s*\d{4}$/i))
+    .sort((a,b)=>{
+      const[am,ay]=a.split(" "),[bm,by]=b.split(" ");
+      return(+ay-+by)||(MO.indexOf(am.slice(0,3))-MO.indexOf(bm.slice(0,3)));
+    });
+
+  if(!mks.length) return null;
+
+  return mks.map(k=>{
+    const tab=raw[k];
+    if(!tab) return null;
+
+    // ── NEW FORMAT: { budget, salary, transactions:[{date,cat,desc,amount,method}] }
+    if(tab.transactions && Array.isArray(tab.transactions)){
+      const budget = pn(tab.budget||70400);
+      const income = pn(tab.salary||tab.income||75400);
+      const txns   = tab.transactions
+        .filter(t=>t&&pn(t.amount)>0)
+        .map(t=>({
+          date:   String(t.date  ||k).trim(),
+          day:    String(t.day   ||"").trim(),
+          cat:    String(t.cat   ||"Other").trim(),
+          desc:   String(t.desc  ||"").trim(),
+          amount: pn(t.amount),
+          method: String(t.method||"").trim(),
+        }));
       const spent=txns.reduce((s,t)=>s+t.amount,0);
       const cats={}; txns.forEach(t=>{cats[t.cat]=(cats[t.cat]||0)+t.amount;});
-      return {m:k,budget,income,spent,transactions:txns,cats};
-    }).filter(m=>m&&(m.spent>0||m.transactions.length>0));
-  }
-  return null;
+      return {m:k, budget, income, spent, transactions:txns, cats};
+    }
+
+    // ── FALLBACK: raw 2D array (old format)
+    if(Array.isArray(tab)){
+      const {budget,income}=extractBI(tab);
+      let hi=-1;
+      for(let i=0;i<Math.min(tab.length,8);i++){
+        const r=tab[i].map(v=>String(v||"").toUpperCase());
+        if(r.some(v=>v.includes("DATE")||v.includes("CATEGORY")||v.includes("AMOUNT"))){hi=i;break;}
+      }
+      if(hi===-1) return null;
+      const txns=tab.slice(hi+1).map(r=>{
+        if(!Array.isArray(r)) return null;
+        const amt=pn(r[4]);
+        if(!amt) return null;
+        return { date:String(r[0]||k).trim(), day:String(r[1]||"").trim(), cat:String(r[2]||"Other").trim(), desc:String(r[3]||"").trim(), amount:amt, method:String(r[5]||"").trim() };
+      }).filter(Boolean);
+      const spent=txns.reduce((s,t)=>s+t.amount,0);
+      const cats={}; txns.forEach(t=>{cats[t.cat]=(cats[t.cat]||0)+t.amount;});
+      return {m:k, budget, income, spent, transactions:txns, cats};
+    }
+
+    return null;
+  }).filter(m=>m&&(m.spent>0||m.transactions.length>0));
 }
 
 // ─── SPARKLINE ────────────────────────────────────────────────────────────────
@@ -377,6 +424,7 @@ const FIXED_CATS=["Housing","Internet","Phone","Mom","Subscriptions","Installmen
 
 export default function App(){
   const [tab,setTab]=useState("overview");
+  const [darkMode,setDarkMode]=useState(true);
   const [holdings,setHoldings]=useState(FB_H);
   const [debts,setDebts]=useState(FB_D);
   const [targetAlloc,setTargetAlloc]=useState(FB_T);
@@ -388,6 +436,7 @@ export default function App(){
   const [portErr,setPortErr]=useState(null); const [spendErr,setSpendErr]=useState(null);
   const [loading,setLoading]=useState(true); const [refreshing,setRefreshing]=useState(false);
   const [lastUp,setLastUp]=useState(null);
+  const [spendLive,setSpendLive]=useState(false);
   const [selFund,setSelFund]=useState(null);
   const [aiOpen,setAiOpen]=useState(false);
   const [debugOpen,setDebugOpen]=useState(false);
@@ -408,8 +457,9 @@ export default function App(){
       const cf=parseCF(raw); if(cf?.income) setCashFlow(cf);
     }catch(e){setPortErr(String(e));}
     try{const res=await fetch(API_SPEND,{mode:"cors"}); if(!res.ok) throw new Error(`HTTP ${res.status}`); const raw=await res.json(); setSpendRaw(raw); setSpendErr(null);
-      const sm=parseSpending(raw); if(sm?.length){setSpendingMonths(sm);live=true;}
-    }catch(e){setSpendErr(String(e));}
+      const sm=parseSpending(raw); if(sm?.length){setSpendingMonths(sm);live=true;setSpendLive(true);}
+      else{setSpendLive(false);}
+    }catch(e){setSpendErr(String(e));setSpendLive(false);}
     setDataSource(live?"live":"fallback"); setLastUp(new Date()); setLoading(false); setRefreshing(false);
   },[]);
 
@@ -423,8 +473,8 @@ export default function App(){
   const GL=holdings.reduce((s,h)=>s+(h.value-h.cost),0);
   const WDAILY=TOTAL?holdings.reduce((s,h)=>s+(h.dailyPct*h.value),0)/TOTAL:0;
   const ALLOC=getAlloc(holdings);
-  const PERSONAL=holdings.filter(h=>h.type==="Personal").reduce((s,h)=>s+h.value,0);
-  const RETIREMENT=holdings.filter(h=>h.type==="Retirement").reduce((s,h)=>s+h.value,0);
+  const PERSONAL=holdings.filter(h=>h.type.toLowerCase().includes("personal")).reduce((s,h)=>s+h.value,0);
+  const RETIREMENT=holdings.filter(h=>h.type.toLowerCase().includes("retirement")).reduce((s,h)=>s+h.value,0);
   const CLASSES=["All",...Array.from(new Set(holdings.map(h=>h.cls)))];
   const FILTERED=holdings.filter(h=>(!search||(h.code+h.cls+h.name).toLowerCase().includes(search.toLowerCase()))&&(fCls==="All"||h.cls===fCls));
   const REBAL=targetAlloc.map(t=>{const a=ALLOC.find(x=>x.cls===t.cls);return{...t,actualPct:a?.pct||0,diff:+((a?.pct||0)-t.target).toFixed(1)};});
@@ -456,7 +506,7 @@ export default function App(){
   );
 
   return(
-    <div style={{fontFamily:"'Inter','DM Sans',sans-serif",background:T.bg,color:T.text,minHeight:"100vh",maxWidth:480,margin:"0 auto",position:"relative",overflowX:"hidden",WebkitFontSmoothing:"antialiased"}}>
+    <div style={{fontFamily:"'Inter','DM Sans',sans-serif",background:darkMode?"#060912":"#F8FAFC",color:darkMode?"#FFFFFF":"#0F172A",minHeight:"100vh",maxWidth:480,margin:"0 auto",position:"relative",overflowX:"hidden",WebkitFontSmoothing:"antialiased"}}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;700&display=swap');
         @keyframes slideIn{from{transform:translateX(100%)}to{transform:translateX(0)}}
@@ -488,6 +538,7 @@ export default function App(){
         </div>
         <div style={{display:"flex",gap:6,alignItems:"center"}}>
           <button onClick={()=>fetchAll(true)} style={{background:T.surf,border:`1px solid ${T.border}`,color:refreshing?T.accent:T.inactive,borderRadius:8,width:30,height:30,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer"}}><RefreshCw size={13} style={{animation:refreshing?"spin 1s linear infinite":"none"}}/></button>
+          <button onClick={()=>setDarkMode(d=>!d)} style={{background:T.surf,border:`1px solid ${T.border}`,color:T.inactive,borderRadius:8,width:30,height:30,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:14}}>{darkMode?"☀️":"🌙"}</button>
           <button onClick={()=>setAiOpen(true)} style={{background:"linear-gradient(135deg,#6366F1,#4F46E5)",border:"none",color:"white",borderRadius:8,padding:"0 11px",fontSize:11,cursor:"pointer",fontWeight:700,height:30,display:"flex",alignItems:"center",gap:4,letterSpacing:"-.1px"}}>✦ AI</button>
           <button onClick={()=>setProfOpen(true)} style={{width:30,height:30,borderRadius:"50%",border:"none",padding:0,cursor:"pointer",overflow:"hidden",background:"linear-gradient(135deg,#6366F1,#F472B6)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,color:"white",fontWeight:700}}>
             {profilePhoto?<img src={profilePhoto} style={{width:"100%",height:"100%",objectFit:"cover"}} alt="profile"/>:"G"}
@@ -690,11 +741,18 @@ export default function App(){
 
         {/* ══ SPENDING ══ */}
         {tab==="spending"&&(<div style={{display:"flex",flexDirection:"column",gap:11}}>
-          {/* Month pills */}
-          <div style={{display:"flex",gap:6,overflowX:"auto",scrollbarWidth:"none",paddingBottom:1}}>
-            {spendingMonths.map((sm,i)=>(
-              <button key={i} onClick={()=>setSelMonth(i)} style={{padding:"6px 14px",borderRadius:999,fontSize:11,fontWeight:600,cursor:"pointer",border:`1px solid ${selMonth===i?T.accent:T.border}`,background:selMonth===i?T.accent:"transparent",color:selMonth===i?"white":T.inactive,flexShrink:0,fontFamily:"'Inter',sans-serif"}}>{sm.m}</button>
-            ))}
+          {/* Month pills + live badge */}
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:2}}>
+            <div style={{display:"flex",gap:6,overflowX:"auto",scrollbarWidth:"none",paddingBottom:1}}>
+              {spendingMonths.map((sm,i)=>(
+                <button key={i} onClick={()=>setSelMonth(i)} style={{padding:"6px 14px",borderRadius:999,fontSize:11,fontWeight:600,cursor:"pointer",border:`1px solid ${selMonth===i?T.accent:T.border}`,background:selMonth===i?T.accent:"transparent",color:selMonth===i?"white":T.inactive,flexShrink:0,fontFamily:"'Inter',sans-serif"}}>{sm.m}</button>
+              ))}
+            </div>
+            <span style={{fontSize:9,fontWeight:700,padding:"2px 8px",borderRadius:999,flexShrink:0,marginLeft:8,
+              color:spendLive?"#22C55E":"#FBBF24",
+              background:spendLive?"rgba(34,197,94,0.12)":"rgba(251,191,36,0.12)"}}>
+              {spendLive?"● Live":"◌ Cached"}
+            </span>
           </div>
 
           {/* Summary 3-col */}
