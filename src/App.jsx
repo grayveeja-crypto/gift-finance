@@ -672,6 +672,27 @@ export default function App(){
                 </div>
               </div>
 
+              {/* Total invested capital */}
+              {(()=>{
+                const totalCost=holdings.reduce((s,h)=>s+h.cost,0);
+                const totalGain=TOTAL-totalCost;
+                const gainPct=totalCost>0?(totalGain/totalCost*100):0;
+                return(
+                  <div style={{padding:"9px 12px",background:"rgba(74,222,128,0.06)",borderRadius:12,border:"1px solid rgba(74,222,128,0.15)"}}>
+                    <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+                      <span style={{fontSize:9,color:T.muted,fontWeight:600}}>INVESTED</span>
+                      <span style={{fontSize:9,color:T.muted,fontWeight:600}}>VALUE NOW</span>
+                      <span style={{fontSize:9,color:T.muted,fontWeight:600}}>TOTAL GAIN</span>
+                    </div>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                      <span style={{fontFamily:T.mono,fontSize:11,fontWeight:700,color:T.text2}}>{fmt(totalCost)}</span>
+                      <span style={{fontFamily:T.mono,fontSize:11,fontWeight:700,color:T.text}}>{fmt(TOTAL)}</span>
+                      <span style={{fontFamily:T.mono,fontSize:12,fontWeight:800,color:clr(totalGain)}}>{sgn(totalGain)}{fmt(Math.abs(totalGain))} <span style={{fontSize:9}}>({sgn(gainPct)}{fd(gainPct,1)}%)</span></span>
+                    </div>
+                  </div>
+                );
+              })()}
+
               {/* Retirement milestone */}
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"9px 12px",background:"rgba(99,102,241,0.07)",borderRadius:12,border:"1px solid rgba(99,102,241,0.15)"}}>
                 <div style={{fontSize:10,color:T.muted}}>Retirement goal · ฿21M by 2042</div>
