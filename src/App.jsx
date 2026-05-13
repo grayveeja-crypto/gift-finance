@@ -199,7 +199,20 @@ function parseCF(raw) {
     const income=pn(l?.Income||l?.income||0);
     if(income<=0) continue;
     const rp=pn(l?.["Unallocated Cash %"]||0);
-    return { date:String(l?.Date||""), income, expenses:pn(l?.Expenses||0), travelFund:pn(l?.["Travel Fund"]||0), emergencyFund:pn(l?.["Emergency Fund"]||0), cumBalance:pn(l?.["Cumulative Balance"]||0), investments:pn(l?.Investments||0), unallocatedPct:rp<2?rp*100:rp };
+    // Emergency Coverage from sheet = decimal e.g. 0.1061 = 0.1 months
+    const rawCov=pn(l?.["Emergency Coverage"]||l?.["Emergency Cov"]||0);
+    const emergencyCovMonths = rawCov > 0 ? (rawCov < 2 ? rawCov : rawCov) : 0;
+    return {
+      date:             String(l?.Date||""),
+      income,
+      expenses:         pn(l?.Expenses||0),
+      travelFund:       pn(l?.["Travel Fund"]||0),
+      emergencyFund:    pn(l?.["Emergency Fund"]||0),
+      emergencyCovMonths,
+      cumBalance:       pn(l?.["Cumulative Balance"]||0),
+      investments:      pn(l?.Investments||0),
+      unallocatedPct:   rp<2?rp*100:rp,
+    };
   }
   return null;
 }
@@ -241,10 +254,16 @@ function parseSpending(raw) {
       const txns = tab.transactions.filter(t=>{
         if(!t) return false;
         const amt=pn(t.amount); if(amt<=0) return false;
-        const cat=cleanCat(t.cat||t.category||"");
-        // Filter out summary/total rows
-        if(cat.toUpperCase().includes("TOTAL")) return false;
-        if(cat.toUpperCase().includes("BUDGET")) return false;
+        // The TOTAL row has "TOTAL SPENT THIS MONTH" in the date field
+        const dateStr=String(t.date||"").toUpperCase();
+        if(dateStr.includes("TOTAL")) return false;
+        if(dateStr.includes("BUDGET")) return false;
+        if(dateStr.includes("SPENT")) return false;
+        // Also filter by category and desc just in case
+        const cat=cleanCat(t.cat||t.category||"").toUpperCase();
+        if(cat.includes("TOTAL")) return false;
+        const desc=String(t.desc||"").toUpperCase();
+        if(desc.includes("TOTAL")) return false;
         return true;
       }).map(t=>({
         date:   cleanDate(t.date||k),
@@ -591,10 +610,13 @@ export default function App(){
           {/* KPI 2×2 */}
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}}>
             {[
-              {label:"Net Worth",       val:NW,     sub:`${sgn(WDAILY)}${fd(WDAILY)}% today`,         c:WDAILY>=0?T.green:T.red, sc:"#818CF8"},
-              {label:"Unrealized G/L",  val:GL,     sub:"Total paper profit",                          c:T.green,                sc:T.green},
-              {label:"Total Debt",      val:DEBT,   sub:"2 active mortgages",                          c:T.red,                  sc:T.red},
-              {label:"Emergency Fund",  val:null,   sub:"Target: 6 months",                            c:T.green,                sc:T.green,custom:"6.2×"},
+              {label:"Net Worth",      val:NW,   sub:`${sgn(WDAILY)}${fd(WDAILY)}% today`,  c:WDAILY>=0?T.green:T.red, sc:"#818CF8"},
+              {label:"Unrealized G/L", val:GL,   sub:"Total paper profit",                   c:T.green, sc:T.green},
+              {label:"Total Debt",     val:DEBT, sub:"2 active mortgages",                   c:T.red,   sc:T.red},
+              {label:"Emergency Fund", val:cashFlow.emergencyFund||0,
+               sub:`${fmt(cashFlow.emergencyFund||0)} / ฿143K`,
+               c:(cashFlow.emergencyFund||0)>=143000?T.green:T.gold, sc:T.green,
+               custom:null},
             ].map((k,i)=>(
               <div key={i} className="kc" style={{...card}}>
                 <div style={{fontSize:9,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:".07em",marginBottom:5}}>{k.label}</div>
@@ -673,10 +695,10 @@ export default function App(){
               <button onClick={()=>setAiOpen(true)} style={{fontSize:9,fontWeight:700,color:T.accent,background:`${T.accent}12`,border:`1px solid rgba(99,102,241,0.2)`,borderRadius:7,padding:"3px 9px",cursor:"pointer",fontFamily:"'Inter',sans-serif"}}>Ask AI ✦</button>
             </div>
             {[
-              {icon:"⚖️",t:"Fixed Income 3% overweight vs target. Consider shifting ≈฿49K to Global Equity.",type:"warn"},
-              {icon:"✅",t:"Emergency fund at 6.2× — target exceeded. You're well protected.",type:"ok"},
-              {icon:"📈",t:"Gold up +10.98% today, significantly boosting portfolio performance.",type:"ok"},
-              {icon:"💡",t:`May spending exceeded budget by ฿4,745. Food and Japan Fund are main drivers.`,type:"info"},
+              {icon:"🛡️",t:"Emergency fund at ฿8,000 of ฿143,000 target (5.6%). Phase 1 priority — build this up consistently.",type:"warn"},
+              {icon:"📈",t:"Retirement trajectory strong. 16 years to target age 60 with 81% in retirement assets.",type:"ok"},
+              {icon:"⚖️",t:"Fixed Income slightly overweight vs target. Consider shifting to Global Equity gradually.",type:"warn"},
+              {icon:"💡",t:"PVD contribution raise to 12% is next key action per your financial strategy Phase 1.",type:"info"},
             ].map((ins,i)=>(
               <div key={i} style={{display:"flex",gap:9,padding:"9px 11px",borderRadius:11,marginBottom:i<3?7:0,background:ins.type==="warn"?"rgba(251,191,36,0.07)":ins.type==="ok"?"rgba(74,222,128,0.06)":`${T.accent}0A`,border:`1px solid ${ins.type==="warn"?"rgba(251,191,36,0.18)":ins.type==="ok"?"rgba(74,222,128,0.14)":`rgba(99,102,241,0.18)`}`}}>
                 <span style={{fontSize:13,flexShrink:0}}>{ins.icon}</span>
@@ -958,17 +980,28 @@ export default function App(){
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}}>
             <div style={card}>
               <div style={{fontSize:12,fontWeight:700,color:T.text,marginBottom:12}}>Goals</div>
-              {[
-                {label:"Emergency",val:6.2,max:6,color:T.green,note:"6.2 / 6 months"},
-                {label:"Retirement",val:RETIREMENT,max:3000000,color:T.accent,note:`${fmt(RETIREMENT)} / ฿3M`},
-                {label:"Japan Fund",val:cashFlow.travelFund||15000,max:50000,color:T.gold,note:`${fmt(cashFlow.travelFund||15000)} / ฿50K`},
-              ].map((g,i)=>(
-                <div key={i} style={{marginBottom:i<2?14:0}}>
-                  <div style={{display:"flex",justifyContent:"space-between",fontSize:11,marginBottom:2}}><span style={{fontWeight:600,color:T.text2}}>{g.label}</span><span style={{fontWeight:700,color:g.color,fontFamily:T.mono}}>{Math.min(100,(g.val/g.max*100)).toFixed(0)}%</span></div>
-                  <div style={{fontSize:9,color:T.muted,marginBottom:4}}>{g.note}</div>
-                  <div style={{height:5,background:`${g.color}18`,borderRadius:999,overflow:"hidden"}}><div style={{height:"100%",width:`${Math.min(100,g.val/g.max*100)}%`,background:g.color,borderRadius:999,transition:"width 1.2s ease"}}/></div>
-                </div>
-              ))}
+              {(()=>{
+                const efBalance  = cashFlow.emergencyFund||0;
+                const efTarget   = 143000; // from financial strategy document
+                const efPct      = Math.min(100, efBalance/efTarget*100);
+                const efMonths   = cashFlow.income>0 ? (efBalance/cashFlow.income).toFixed(1) : 0;
+                return [
+                  {label:"Emergency Fund", pct:efPct,   color:T.green,  note:`${fmt(efBalance)} / ฿143K target · ${efMonths} months`},
+                  {label:"Retirement",     pct:Math.min(100,RETIREMENT/3000000*100), color:T.accent, note:`${fmt(RETIREMENT)} / ฿3M`},
+                  {label:"Japan Fund",     pct:Math.min(100,(cashFlow.travelFund||0)/50000*100), color:T.gold, note:`${fmt(cashFlow.travelFund||0)} / ฿50K`},
+                ].map((g,i)=>(
+                  <div key={i} style={{marginBottom:i<2?14:0}}>
+                    <div style={{display:"flex",justifyContent:"space-between",fontSize:11,marginBottom:2}}>
+                      <span style={{fontWeight:600,color:T.text2}}>{g.label}</span>
+                      <span style={{fontWeight:700,color:g.color,fontFamily:T.mono}}>{g.pct.toFixed(0)}%</span>
+                    </div>
+                    <div style={{fontSize:9,color:T.muted,marginBottom:4}}>{g.note}</div>
+                    <div style={{height:5,background:`${g.color}18`,borderRadius:999,overflow:"hidden"}}>
+                      <div style={{height:"100%",width:`${g.pct}%`,background:g.color,borderRadius:999,transition:"width 1.2s ease"}}/>
+                    </div>
+                  </div>
+                ));
+              })()}
             </div>
             <div style={card}>
               <div style={{fontSize:12,fontWeight:700,color:T.text,marginBottom:12}}>Cash Flow</div>
