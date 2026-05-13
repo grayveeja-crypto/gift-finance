@@ -912,14 +912,7 @@ export default function App(){
 
         {/* ══ SPENDING ══ */}
         {tab==="spending"&&(<div style={{display:"flex",flexDirection:"column",gap:11}}>
-          {/* DIAGNOSTIC — remove after fix */}
-          {spendRaw&&<div style={{padding:"8px 12px",borderRadius:12,background:"rgba(99,102,241,0.08)",border:"1px solid rgba(99,102,241,0.2)",fontSize:10,color:T.text2,fontFamily:T.mono}}>
-            <div style={{fontWeight:700,color:"#818CF8",marginBottom:4}}>Parser diagnostic</div>
-            <div>API keys: {Object.keys(spendRaw||{}).join(", ")}</div>
-            <div>Month tabs found: {Object.keys(spendRaw||{}).filter(k=>k.match(/^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s*\d{4}$/i)).join(", ")||"NONE"}</div>
-            <div>Parsed months: {spendingMonths.map(m=>m.m).join(", ")}</div>
-            <div>Current month spent: {CM.spent}</div>
-          </div>}
+
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:2}}>
             <div style={{display:"flex",gap:6,overflowX:"auto",scrollbarWidth:"none",paddingBottom:1}}>
               {spendingMonths.map((sm,i)=>(
@@ -936,7 +929,7 @@ export default function App(){
             ].map((s,i)=>(
               <div key={i} style={{...card,textAlign:"center",padding:"12px 10px"}}>
                 <div style={{fontSize:9,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:".06em",marginBottom:4}}>{s.l}</div>
-                <div style={{fontSize:14,fontWeight:800,color:s.c,fontFamily:T.mono}}>{fmt(Math.abs(s.v))}</div>
+                <div style={{fontSize:14,fontWeight:800,color:s.c,fontFamily:T.mono}}>{s.v<0?"-":""}{fmt(Math.abs(s.v))}</div>
                 {i===0&&<div style={{fontSize:8,color:CM.spent>(CM.budget||70400)?T.red:T.green,marginTop:2,fontWeight:600}}>{CM.spent>(CM.budget||70400)?"OVER":"UNDER"}</div>}
               </div>
             ))}
