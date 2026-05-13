@@ -611,7 +611,7 @@ export default function App(){
   );
 
   return(
-    <div style={{fontFamily:"'Inter','DM Sans',sans-serif",background:"#060912",color:"#FFFFFF",minHeight:"100vh",maxWidth:480,margin:"0 auto",position:"relative",overflowX:"hidden",WebkitFontSmoothing:"antialiased"}}>
+    <div style={{fontFamily:"'Inter','DM Sans',sans-serif",background:"#060912",color:"#FFFFFF",minHeight:"100vh",maxWidth:480,margin:"0 auto",position:"relative",overflowX:"hidden",overflowY:"auto",WebkitFontSmoothing:"antialiased"}}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;700&display=swap');
         @keyframes slideIn  {from{transform:translateX(100%)}to{transform:translateX(0)}}
@@ -698,18 +698,18 @@ export default function App(){
                   <div style={{flex:RETIRE,  background:"linear-gradient(90deg,#38BDF8,#7DD3FC)"}}/>
                   <div style={{flex:DEBT,    background:"linear-gradient(90deg,#F87171,#FCA5A5)",borderRadius:"0 999px 999px 0"}}/>
                 </div>
-                <div style={{display:"flex",justifyContent:"space-between",marginTop:7}}>
+                <div style={{display:"flex",justifyContent:"space-between",marginTop:6}}>
                   {[
                     {label:"Personal",val:PERSONAL,c:"#818CF8"},
                     {label:"Retirement",val:RETIRE,c:"#38BDF8"},
                     {label:"Debt",val:DEBT,c:"#F87171"},
                   ].map((s,i)=>(
-                    <div key={i} style={{textAlign:i===1?"center":i===2?"right":"left"}}>
-                      <div style={{display:"flex",alignItems:"center",gap:4,justifyContent:i===1?"center":i===2?"flex-end":"flex-start"}}>
-                        <div style={{width:5,height:5,borderRadius:"50%",background:s.c}}/>
-                        <span style={{fontSize:9,color:T.muted,fontWeight:600}}>{s.label}</span>
+                    <div key={i} style={{textAlign:i===1?"center":i===2?"right":"left",minWidth:0,flex:1}}>
+                      <div style={{display:"flex",alignItems:"center",gap:3,justifyContent:i===1?"center":i===2?"flex-end":"flex-start"}}>
+                        <div style={{width:5,height:5,borderRadius:"50%",background:s.c,flexShrink:0}}/>
+                        <span style={{fontSize:8,color:T.muted,fontWeight:600}}>{s.label}</span>
                       </div>
-                      <div style={{fontFamily:T.mono,fontSize:12,fontWeight:700,color:T.text2,marginTop:1}}>{fmt(s.val)}</div>
+                      <div style={{fontFamily:T.mono,fontSize:11,fontWeight:700,color:T.text2,marginTop:1}}>{fmt(s.val)}</div>
                     </div>
                   ))}
                 </div>
@@ -723,14 +723,14 @@ export default function App(){
                 return(
                   <div style={{padding:"9px 12px",background:"rgba(74,222,128,0.06)",borderRadius:12,border:"1px solid rgba(74,222,128,0.15)"}}>
                     <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
-                      <span style={{fontSize:9,color:T.muted,fontWeight:600}}>INVESTED</span>
-                      <span style={{fontSize:9,color:T.muted,fontWeight:600}}>VALUE NOW</span>
-                      <span style={{fontSize:9,color:T.muted,fontWeight:600}}>TOTAL GAIN</span>
+                      <span style={{fontSize:8,color:T.muted,fontWeight:600}}>INVESTED</span>
+                      <span style={{fontSize:8,color:T.muted,fontWeight:600}}>VALUE NOW</span>
+                      <span style={{fontSize:8,color:T.muted,fontWeight:600}}>GAIN</span>
                     </div>
                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                       <span style={{fontFamily:T.mono,fontSize:11,fontWeight:700,color:T.text2}}>{fmt(totalCost)}</span>
                       <span style={{fontFamily:T.mono,fontSize:11,fontWeight:700,color:T.text}}>{fmt(TOTAL)}</span>
-                      <span style={{fontFamily:T.mono,fontSize:12,fontWeight:800,color:clr(totalGain)}}>{sgn(totalGain)}{fmt(Math.abs(totalGain))} <span style={{fontSize:9}}>({sgn(gainPct)}{fd(gainPct,1)}%)</span></span>
+                      <span style={{fontFamily:T.mono,fontSize:11,fontWeight:800,color:clr(totalGain)}}>{sgn(totalGain)}{fmt(Math.abs(totalGain))} <span style={{fontSize:9}}>({sgn(gainPct)}{fd(gainPct,1)}%)</span></span>
                     </div>
                   </div>
                 );
@@ -800,75 +800,6 @@ export default function App(){
               </div>
             )}
           </div>
-
-          {/* ③ "SO WHAT" INSIGHT CARDS ────────────────────────── */}
-          {(()=>{
-            // Savings Rate
-            const saved   = INCOME-(CM.spent||0);
-            const savePct = INCOME>0?Math.round(saved/INCOME*100):0;
-            const saveLabel = savePct>=50?"Excellent 🏆":savePct>=35?"On track ✅":savePct>=20?"Needs attention ⚠️":"Below target 🔴";
-            const saveColor = savePct>=50?T.green:savePct>=35?T.accent2:savePct>=20?T.gold:T.red;
-
-            // Net Worth Momentum — compare last two history entries
-            const prevNW = history.length>=2?(history[history.length-2].portfolio-history[history.length-2].debt):0;
-            const nwDelta = NW-prevNW;
-            const nwLabel = nwDelta>0?"On track ↑":"Dropped ↓";
-            const nwColor = nwDelta>=0?T.green:T.red;
-
-            // Emergency Fund countdown
-            const efRemaining = Math.max(0,EF_TARGET-EF_BAL);
-            const efMonthsLeft = EF_BAL>=EF_TARGET?0:Math.ceil(efRemaining/9584);
-            const efDone = EF_BAL>=EF_TARGET;
-
-            return(
-              <div style={{display:"flex",flexDirection:"column",gap:8}}>
-                {/* Card 1 — Savings Rate */}
-                <div style={{borderRadius:16,padding:"13px 15px",background:"rgba(255,255,255,0.03)",border:`1px solid ${saveColor}25`,display:"flex",alignItems:"center",gap:14}}>
-                  <div style={{width:42,height:42,borderRadius:13,background:`${saveColor}15`,border:`1px solid ${saveColor}30`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-                    <span style={{fontFamily:T.mono,fontSize:14,fontWeight:900,color:saveColor}}>{savePct}%</span>
-                  </div>
-                  <div style={{flex:1,minWidth:0}}>
-                    <div style={{fontSize:11,fontWeight:700,color:T.text,marginBottom:3}}>Monthly Savings Rate</div>
-                    <div style={{fontSize:10,color:T.muted,lineHeight:1.45}}>
-                      You saved <span style={{color:saveColor,fontWeight:700}}>{fmt(saved)}</span> of {fmt(INCOME)} income — <span style={{color:saveColor,fontWeight:600}}>{saveLabel}</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Card 2 — Net Worth Momentum */}
-                <div style={{borderRadius:16,padding:"13px 15px",background:"rgba(255,255,255,0.03)",border:`1px solid ${nwColor}25`,display:"flex",alignItems:"center",gap:14}}>
-                  <div style={{width:42,height:42,borderRadius:13,background:`${nwColor}15`,border:`1px solid ${nwColor}30`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,flexDirection:"column"}}>
-                    <span style={{fontSize:14}}>{nwDelta>=0?"📈":"📉"}</span>
-                  </div>
-                  <div style={{flex:1,minWidth:0}}>
-                    <div style={{fontSize:11,fontWeight:700,color:T.text,marginBottom:3}}>Net Worth Momentum</div>
-                    <div style={{fontSize:10,color:T.muted,lineHeight:1.45}}>
-                      {prevNW>0
-                        ?<>Net worth <span style={{color:nwColor,fontWeight:700}}>{nwDelta>=0?"+":""}{fmt(nwDelta)}</span> vs last month — <span style={{color:nwColor,fontWeight:600}}>{nwLabel}</span></>
-                        :<>Building your wealth baseline. Add monthly rows to History tab to track momentum.</>
-                      }
-                    </div>
-                  </div>
-                </div>
-
-                {/* Card 3 — Emergency Fund Countdown */}
-                <div style={{borderRadius:16,padding:"13px 15px",background:efDone?"rgba(74,222,128,0.05)":"rgba(251,191,36,0.04)",border:`1px solid ${efDone?"rgba(74,222,128,0.2)":"rgba(251,191,36,0.2)"}`,display:"flex",alignItems:"center",gap:14}}>
-                  <div style={{width:42,height:42,borderRadius:13,background:efDone?"rgba(74,222,128,0.12)":"rgba(251,191,36,0.12)",border:`1px solid ${efDone?"rgba(74,222,128,0.25)":"rgba(251,191,36,0.25)"}`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-                    <span style={{fontSize:efDone?20:14,fontFamily:efDone?"inherit":T.mono,fontWeight:900,color:efDone?T.green:T.gold}}>{efDone?"🎉":`${efMonthsLeft}`}</span>
-                  </div>
-                  <div style={{flex:1,minWidth:0}}>
-                    <div style={{fontSize:11,fontWeight:700,color:T.text,marginBottom:3}}>Emergency Fund Countdown</div>
-                    <div style={{fontSize:10,color:T.muted,lineHeight:1.45}}>
-                      {efDone
-                        ?<>Goal complete — <span style={{color:T.green,fontWeight:600}}>Phase 2 investing unlocked</span></>
-                        :<><span style={{color:T.gold,fontWeight:700}}>{fmt(efRemaining)}</span> remaining — at ฿9,584/mo, done in <span style={{color:T.gold,fontWeight:700}}>{efMonthsLeft} months</span></>
-                      }
-                    </div>
-                  </div>
-                </div>
-              </div>
-            );
-          })()}
 
           {/* ④ TODAY'S MOVERS ─────────────────────────────────── */}
           <div style={card}>
