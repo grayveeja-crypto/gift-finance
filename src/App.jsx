@@ -204,6 +204,20 @@ function parseCF(raw) {
   return null;
 }
 const MO=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
+// Strip emojis from category names
+function cleanCat(s){
+  return String(s||"Other").replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g,"").replace(/[\u2600-\u27BF]/g,"").replace(/\s+/g," ").trim()||"Other";
+}
+// Parse full timestamp or YYYY-MM-DD to clean date string
+function cleanDate(s){
+  if(!s) return "";
+  const str=String(s);
+  if(str.match(/^\d{4}-\d{2}-\d{2}/)) return str.slice(0,10);
+  try{ const d=new Date(str); if(!isNaN(d.getTime())) return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; }catch{}
+  return str.slice(0,10);
+}
+
 function parseSpending(raw) {
   if(!raw||typeof raw!=="object") return null;
 
@@ -224,22 +238,28 @@ function parseSpending(raw) {
     if(tab.transactions && Array.isArray(tab.transactions)){
       const budget = pn(tab.budget||70400);
       const income = pn(tab.salary||tab.income||75400);
-      const txns   = tab.transactions
-        .filter(t=>t&&pn(t.amount)>0)
-        .map(t=>({
-          date:   String(t.date  ||k).trim(),
-          day:    String(t.day   ||"").trim(),
-          cat:    String(t.cat   ||"Other").trim(),
-          desc:   String(t.desc  ||"").trim(),
-          amount: pn(t.amount),
-          method: String(t.method||"").trim(),
-        }));
+      const txns = tab.transactions.filter(t=>{
+        if(!t) return false;
+        const amt=pn(t.amount); if(amt<=0) return false;
+        const cat=cleanCat(t.cat||t.category||"");
+        // Filter out summary/total rows
+        if(cat.toUpperCase().includes("TOTAL")) return false;
+        if(cat.toUpperCase().includes("BUDGET")) return false;
+        return true;
+      }).map(t=>({
+        date:   cleanDate(t.date||k),
+        day:    String(t.day||"").trim(),
+        cat:    cleanCat(t.cat||t.category||"Other"),
+        desc:   String(t.desc||"").trim(),
+        amount: pn(t.amount),
+        method: String(t.method||"").trim(),
+      }));
       const spent=txns.reduce((s,t)=>s+t.amount,0);
       const cats={}; txns.forEach(t=>{cats[t.cat]=(cats[t.cat]||0)+t.amount;});
       return {m:k, budget, income, spent, transactions:txns, cats};
     }
 
-    // ── FALLBACK: raw 2D array (old format)
+    // ── FALLBACK: raw 2D array
     if(Array.isArray(tab)){
       const {budget,income}=extractBI(tab);
       let hi=-1;
@@ -250,9 +270,10 @@ function parseSpending(raw) {
       if(hi===-1) return null;
       const txns=tab.slice(hi+1).map(r=>{
         if(!Array.isArray(r)) return null;
-        const amt=pn(r[4]);
-        if(!amt) return null;
-        return { date:String(r[0]||k).trim(), day:String(r[1]||"").trim(), cat:String(r[2]||"Other").trim(), desc:String(r[3]||"").trim(), amount:amt, method:String(r[5]||"").trim() };
+        const amt=pn(r[4]); if(!amt) return null;
+        const cat=cleanCat(r[2]);
+        if(cat.toUpperCase().includes("TOTAL")) return null;
+        return { date:cleanDate(String(r[0]||k)), day:String(r[1]||"").trim(), cat, desc:String(r[3]||"").trim(), amount:amt, method:String(r[5]||"").trim() };
       }).filter(Boolean);
       const spent=txns.reduce((s,t)=>s+t.amount,0);
       const cats={}; txns.forEach(t=>{cats[t.cat]=(cats[t.cat]||0)+t.amount;});
@@ -481,7 +502,11 @@ export default function App(){
   const CM=spendingMonths[selMonth]||spendingMonths[spendingMonths.length-1]||FB_SP[1];
   const INCOME=CM.income||cashFlow.income||75400;
   const TXNS=[...(CM.transactions||[])].reverse();
-  const CAT_DATA=Object.entries(CM.cats||{}).filter(([,v])=>v>0).map(([k,v])=>({name:k,v})).sort((a,b)=>b.v-a.v);
+  // Build CAT_DATA from cats object, or rebuild from transactions if cats is empty
+  const rawCats = CM.cats && Object.keys(CM.cats).length > 0
+    ? CM.cats
+    : (CM.transactions||[]).reduce((acc,t)=>{ acc[t.cat]=(acc[t.cat]||0)+t.amount; return acc; },{});
+  const CAT_DATA=Object.entries(rawCats).filter(([,v])=>v>0).map(([k,v])=>({name:k,v})).sort((a,b)=>b.v-a.v);
   const isLive=dataSource==="live";
 
   // Spending groups
@@ -783,25 +808,32 @@ export default function App(){
           </div>
 
           {/* Category bars */}
+          {/* By Category */}
           <div style={card}>
             <div style={{fontSize:12,fontWeight:700,color:T.text,marginBottom:12}}>By Category</div>
-            {CAT_DATA.slice(0,8).map((c,i)=>(
-              <div key={i} style={{marginBottom:10}}>
-                <div style={{display:"flex",justifyContent:"space-between",fontSize:11,marginBottom:4,alignItems:"center"}}>
-                  <div style={{display:"flex",alignItems:"center",gap:7}}>
-                    <div style={{width:7,height:7,borderRadius:"50%",background:CAT_COLOR[c.name]||T.accent,flexShrink:0}}/>
-                    <span style={{fontWeight:600,color:T.text2}}>{c.name}</span>
-                  </div>
-                  <div style={{display:"flex",gap:7,alignItems:"center"}}>
-                    <span style={{fontSize:9,color:T.muted}}>{(c.v/CM.spent*100).toFixed(0)}%</span>
-                    <span style={{fontWeight:700,color:T.text,fontFamily:T.mono}}>{fmt(c.v)}</span>
-                  </div>
-                </div>
-                <div style={{height:4,background:"rgba(255,255,255,0.06)",borderRadius:999,overflow:"hidden"}}>
-                  <div style={{height:"100%",width:`${(c.v/CM.spent*100).toFixed(1)}%`,background:CAT_COLOR[c.name]||T.accent,borderRadius:999}}/>
-                </div>
-              </div>
-            ))}
+            {CAT_DATA.length===0
+              ? <div style={{textAlign:"center",padding:"16px 0",color:T.muted,fontSize:11}}>No category data yet — log some transactions!</div>
+              : CAT_DATA.slice(0,8).map((c,i)=>{
+                  const pct = CM.spent>0 ? (c.v/CM.spent*100) : 0;
+                  return (
+                    <div key={i} style={{marginBottom:10}}>
+                      <div style={{display:"flex",justifyContent:"space-between",fontSize:11,marginBottom:4,alignItems:"center"}}>
+                        <div style={{display:"flex",alignItems:"center",gap:7}}>
+                          <div style={{width:7,height:7,borderRadius:"50%",background:CAT_COLOR[c.name]||T.accent,flexShrink:0}}/>
+                          <span style={{fontWeight:600,color:T.text2}}>{c.name}</span>
+                        </div>
+                        <div style={{display:"flex",gap:7,alignItems:"center"}}>
+                          <span style={{fontSize:9,color:T.muted}}>{pct.toFixed(0)}%</span>
+                          <span style={{fontWeight:700,color:T.text,fontFamily:T.mono}}>{fmt(c.v)}</span>
+                        </div>
+                      </div>
+                      <div style={{height:4,background:"rgba(255,255,255,0.06)",borderRadius:999,overflow:"hidden"}}>
+                        <div style={{height:"100%",width:`${Math.min(pct,100).toFixed(1)}%`,background:CAT_COLOR[c.name]||T.accent,borderRadius:999}}/>
+                      </div>
+                    </div>
+                  );
+                })
+            }
           </div>
 
           {/* Transaction groups */}
