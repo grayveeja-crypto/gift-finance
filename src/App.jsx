@@ -88,14 +88,8 @@ const sgn = v => v>=0?"+":"";
 const clr = v => v>=0?T.green:T.red;
 
 // Strip emojis + leading/trailing space from category names
-function stripEmoji(s){
-  return String(s||"")
-    .replace(/[\u{1F000}-\u{1FFFF}]/gu,"")
-    .replace(/[\u{2600}-\u{27BF}]/gu,"")
-    .replace(/[\u{FE00}-\u{FEFF}]/gu,"")
-    .replace(/\uFE0F/g,"")
-    .replace(/\s+/g," ")
-    .trim()||"Other";
+function cleanCat(s){
+  return String(s||"Other").replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g,"").replace(/[\u2600-\u27BF]/g,"").replace(/\s+/g," ").trim()||"Other";
 }
 
 function getAlloc(holdings){
@@ -234,73 +228,74 @@ function cleanDate(s){
   return str.slice(0,10);
 }
 
-function parseSpending(raw){
+
+function parseSpending(raw) {
   if(!raw||typeof raw!=="object") return null;
-  // Only tabs matching "Mon YYYY" pattern, skip annual/summary tabs
+
   const mks=Object.keys(raw)
-    .filter(k=>{
-      if(!k.match(/^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s*\d{4}$/i)) return false;
-      if(SKIP_TABS.some(s=>k.toLowerCase().includes(s))) return false;
-      return true;
-    })
+    .filter(k=>k.match(/^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s*\d{4}$/i))
     .sort((a,b)=>{
       const[am,ay]=a.split(" "),[bm,by]=b.split(" ");
       return(+ay-+by)||(MO.indexOf(am.slice(0,3))-MO.indexOf(bm.slice(0,3)));
     });
+
   if(!mks.length) return null;
 
   return mks.map(k=>{
-    const tab=raw[k]; if(!tab||!Array.isArray(tab)) return null;
+    const tab=raw[k];
+    if(!tab) return null;
 
-    // Extract budget & salary from any row in first 5 rows
-    let budget=70400, income=75400;
-    for(let i=0;i<Math.min(tab.length,5);i++){
-      const row=Array.isArray(tab[i])?tab[i]:Object.values(tab[i]||{});
-      const text=row.map(v=>String(v||"")).join(" ");
-      // Handles: "Budget: ฿70,400 | Salary: ฿75,400"
-      const bm=text.match(/[Bb]udget[^฿\d]*(฿?[\d,]+)/);
-      const sm=text.match(/[Ss]alary[^฿\d]*(฿?[\d,]+)/);
-      if(bm) budget=pn(bm[1]);
-      if(sm) income=pn(sm[1]);
+    // FORMAT 1: { budget, salary, transactions:[{date,cat,desc,amount,method}] }
+    if(tab.transactions && Array.isArray(tab.transactions)){
+      const budget = pn(tab.budget||70400);
+      const income = pn(tab.salary||tab.income||75400);
+      const txns = tab.transactions.filter(t=>{
+        if(!t) return false;
+        const amt=pn(t.amount); if(amt<=0) return false;
+        const dateStr=String(t.date||"").toUpperCase();
+        if(dateStr.includes("TOTAL")) return false;
+        if(dateStr.includes("BUDGET")) return false;
+        if(dateStr.includes("SPENT")) return false;
+        const cat=cleanCat(t.cat||t.category||"").toUpperCase();
+        if(cat.includes("TOTAL")) return false;
+        const desc=String(t.desc||"").toUpperCase();
+        if(desc.includes("TOTAL")) return false;
+        return true;
+      }).map(t=>({
+        date:   cleanDate(t.date||k),
+        day:    String(t.day||"").trim(),
+        cat:    cleanCat(t.cat||t.category||"Other"),
+        desc:   String(t.desc||"").trim(),
+        amount: pn(t.amount),
+        method: String(t.method||"").trim(),
+      }));
+      const spent=txns.reduce((s,t)=>s+t.amount,0);
+      const cats={}; txns.forEach(t=>{cats[t.cat]=(cats[t.cat]||0)+t.amount;});
+      return {m:k, budget, income, spent, transactions:txns, cats};
     }
 
-    // Find header row — look for DATE or CATEGORY
-    let hi=-1;
-    for(let i=0;i<Math.min(tab.length,8);i++){
-      const r=(Array.isArray(tab[i])?tab[i]:Object.values(tab[i]||{})).map(v=>String(v||"").toUpperCase());
-      if(r.some(v=>v.includes("DATE")||v.includes("CATEGORY"))){hi=i;break;}
+    // FORMAT 2: raw 2D array from Sheets
+    if(Array.isArray(tab)){
+      const {budget,income}=extractBI(tab);
+      let hi=-1;
+      for(let i=0;i<Math.min(tab.length,8);i++){
+        const r=tab[i].map(v=>String(v||"").toUpperCase());
+        if(r.some(v=>v.includes("DATE")||v.includes("CATEGORY")||v.includes("AMOUNT"))){hi=i;break;}
+      }
+      if(hi===-1) return null;
+      const txns=tab.slice(hi+1).map(r=>{
+        if(!Array.isArray(r)) return null;
+        const amt=pn(r[4]); if(!amt) return null;
+        const cat=cleanCat(r[2]);
+        if(cat.toUpperCase().includes("TOTAL")) return null;
+        return { date:cleanDate(String(r[0]||k)), day:String(r[1]||"").trim(), cat, desc:String(r[3]||"").trim(), amount:amt, method:String(r[5]||"").trim() };
+      }).filter(Boolean);
+      const spent=txns.reduce((s,t)=>s+t.amount,0);
+      const cats={}; txns.forEach(t=>{cats[t.cat]=(cats[t.cat]||0)+t.amount;});
+      return {m:k, budget, income, spent, transactions:txns, cats};
     }
-    if(hi===-1) return null;
 
-    const hdrs=(Array.isArray(tab[hi])?tab[hi]:Object.values(tab[hi]||{})).map(v=>String(v||"").trim().toUpperCase());
-    const iDate=hdrs.findIndex(h=>h.includes("DATE"));
-    const iCat =hdrs.findIndex(h=>h.includes("CATEGORY"));
-    const iDesc=hdrs.findIndex(h=>h.includes("DESC")||h.includes("DESCRIPTION"));
-    const iAmt =hdrs.findIndex(h=>h.includes("AMOUNT"));
-    const iMeth=hdrs.findIndex(h=>h.includes("METHOD")||h.includes("PAYMENT"));
-
-    const txns=tab.slice(hi+1).map(row=>{
-      const r=Array.isArray(row)?row:Object.values(row||{});
-      if(!r.some(v=>v!==""&&v!==null&&v!==undefined)) return null;
-      const amt=pn(r[iAmt>=0?iAmt:4]);
-      if(!amt||amt<=0) return null;
-      const rawCat=String(r[iCat>=0?iCat:2]||"Other");
-      const cat=stripEmoji(rawCat);
-      // Skip total rows
-      if(cat.toUpperCase().includes("TOTAL")||String(r[iDate>=0?iDate:0]||"").toUpperCase().includes("TOTAL")) return null;
-      return {
-        date:   cleanDate(String(r[iDate>=0?iDate:0]||k)),
-        cat,
-        desc:   String(r[iDesc>=0?iDesc:3]||"").trim(),
-        amount: amt,
-        method: String(r[iMeth>=0?iMeth:5]||"").trim(),
-      };
-    }).filter(Boolean);
-
-    if(!txns.length) return null;
-    const spent=txns.reduce((s,t)=>s+t.amount,0);
-    const cats={}; txns.forEach(t=>{cats[t.cat]=(cats[t.cat]||0)+t.amount;});
-    return {m:k, budget, income, spent, transactions:txns, cats};
+    return null;
   }).filter(m=>m&&(m.spent>0||m.transactions.length>0));
 }
 
@@ -917,6 +912,14 @@ export default function App(){
 
         {/* ══ SPENDING ══ */}
         {tab==="spending"&&(<div style={{display:"flex",flexDirection:"column",gap:11}}>
+          {/* DIAGNOSTIC — remove after fix */}
+          {spendRaw&&<div style={{padding:"8px 12px",borderRadius:12,background:"rgba(99,102,241,0.08)",border:"1px solid rgba(99,102,241,0.2)",fontSize:10,color:T.text2,fontFamily:T.mono}}>
+            <div style={{fontWeight:700,color:"#818CF8",marginBottom:4}}>Parser diagnostic</div>
+            <div>API keys: {Object.keys(spendRaw||{}).join(", ")}</div>
+            <div>Month tabs found: {Object.keys(spendRaw||{}).filter(k=>k.match(/^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s*\d{4}$/i)).join(", ")||"NONE"}</div>
+            <div>Parsed months: {spendingMonths.map(m=>m.m).join(", ")}</div>
+            <div>Current month spent: {CM.spent}</div>
+          </div>}
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:2}}>
             <div style={{display:"flex",gap:6,overflowX:"auto",scrollbarWidth:"none",paddingBottom:1}}>
               {spendingMonths.map((sm,i)=>(
