@@ -324,7 +324,7 @@ function Counter({to,dur=1000,prefix="฿"}){
 }
 
 // ─── PANELS ──────────────────────────────────────────────────────────────────
-function ProfilePanel({open,onClose,photo,onPhotoChange,name}){
+function ProfilePanel({open,onClose,photo,onPhotoChange,name,darkMode,setDarkMode}){
   if(!open) return null;
   return(
     <div style={{position:"fixed",inset:0,zIndex:300}}>
@@ -348,6 +348,13 @@ function ProfilePanel({open,onClose,photo,onPhotoChange,name}){
             <span style={{fontSize:12,fontWeight:600,color:T.text2}}>{r.val}</span>
           </div>
         ))}
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"11px 0",borderBottom:`1px solid ${T.border}`}}>
+          <span style={{fontSize:12,color:T.muted}}>Appearance</span>
+          <button onClick={()=>setDarkMode(d=>!d)} style={{display:"flex",alignItems:"center",gap:6,background:"rgba(255,255,255,0.06)",border:`1px solid ${T.border}`,borderRadius:20,padding:"4px 12px",cursor:"pointer",fontSize:11,fontWeight:600,color:T.text2}}>
+            <span style={{fontSize:13}}>{darkMode?"☀️":"🌙"}</span>
+            {darkMode?"Light mode":"Dark mode"}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -371,7 +378,7 @@ function FundPanel({fund,onClose}){
         <div style={{background:fund.dailyPct>=0?"rgba(74,222,128,0.07)":"rgba(248,113,113,0.07)",border:`1px solid ${fund.dailyPct>=0?"rgba(74,222,128,0.18)":"rgba(248,113,113,0.18)"}`,borderRadius:14,padding:14,marginBottom:14}}>
           <div style={{fontSize:9,color:T.muted,marginBottom:3,fontWeight:600}}>CURRENT VALUE</div>
           <div style={{fontSize:26,fontWeight:900,color:T.text,letterSpacing:"-1px",fontFamily:T.mono}}>{fmt(fund.value)}</div>
-          <div style={{height:42,marginTop:8}}><Spark data={mini} color={fund.dailyPct>=0?T.green:T.red} h={42}/></div>
+          <div style={{height:60,marginTop:8}}><Spark data={mini} color={fund.dailyPct>=0?T.green:T.red} h={60}/></div>
         </div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:14}}>
           {[
@@ -489,6 +496,7 @@ export default function App(){
   const [dataSource,setDataSource]=useState("fallback");
   const [portRaw,setPortRaw]=useState(null); const [spendRaw,setSpendRaw]=useState(null);
   const [portErr,setPortErr]=useState(null); const [spendErr,setSpendErr]=useState(null);
+  const [darkMode,setDarkMode]=useState(true);
   const [loading,setLoading]=useState(true); const [refreshing,setRefreshing]=useState(false);
   const [lastUp,setLastUp]=useState(null);
   const [selFund,setSelFund]=useState(null); const [aiOpen,setAiOpen]=useState(false);
@@ -560,10 +568,48 @@ export default function App(){
   };
 
   if(loading) return(
-    <div style={{fontFamily:"'Inter',sans-serif",background:T.bg,color:T.text,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:14}}>
-      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
-      <div style={{width:52,height:52,borderRadius:16,background:"linear-gradient(135deg,#6366F1,#38BDF8)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:24,fontWeight:900,color:"white",animation:"spin 2s linear infinite"}}>G</div>
-      <div style={{fontSize:13,color:T.muted,fontWeight:500}}>Loading your finances…</div>
+    <div style={{fontFamily:"'Inter',sans-serif",background:"#060912",color:"#FFFFFF",minHeight:"100vh",maxWidth:480,margin:"0 auto",padding:"0 13px"}}>
+      <style>{`
+        @keyframes shimmer{0%{background-position:-200% 0}100%{background-position:200% 0}}
+        @keyframes spin{to{transform:rotate(360deg)}}
+        .sk{background:linear-gradient(90deg,rgba(255,255,255,0.04) 25%,rgba(255,255,255,0.09) 50%,rgba(255,255,255,0.04) 75%);background-size:200% 100%;animation:shimmer 1.4s ease-in-out infinite;border-radius:10px;}
+      `}</style>
+      <div style={{height:54,display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <div style={{width:30,height:30,borderRadius:9,background:"linear-gradient(135deg,#6366F1,#38BDF8)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:900,color:"white"}}>G</div>
+          <div className="sk" style={{width:90,height:14}}/>
+        </div>
+        <div className="sk" style={{width:80,height:18}}/>
+        <div style={{display:"flex",gap:6}}><div className="sk" style={{width:30,height:30,borderRadius:8}}/><div className="sk" style={{width:50,height:30,borderRadius:8}}/><div className="sk" style={{width:30,height:30,borderRadius:"50%"}}/></div>
+      </div>
+      <div style={{height:4,background:"rgba(255,255,255,0.06)",borderRadius:999,marginBottom:16}}/>
+      {/* Hero skeleton */}
+      <div style={{borderRadius:22,border:"1px solid rgba(255,255,255,0.08)",padding:"18px 18px 14px",marginBottom:12}}>
+        <div className="sk" style={{width:160,height:10,marginBottom:14}}/>
+        <div className="sk" style={{width:220,height:38,marginBottom:8}}/>
+        <div className="sk" style={{width:140,height:10,marginBottom:16}}/>
+        <div className="sk" style={{width:"100%",height:6,borderRadius:999,marginBottom:12}}/>
+        <div style={{display:"flex",justifyContent:"space-between"}}>
+          {[80,80,80].map((w,i)=><div key={i} className="sk" style={{width:w,height:28,borderRadius:8}}/>)}
+        </div>
+      </div>
+      {/* EF skeleton */}
+      <div style={{borderRadius:20,border:"1px solid rgba(255,255,255,0.08)",padding:"15px 16px",marginBottom:12}}>
+        <div style={{display:"flex",justifyContent:"space-between",marginBottom:12}}>
+          <div><div className="sk" style={{width:100,height:10,marginBottom:8}}/><div className="sk" style={{width:140,height:16}}/></div>
+          <div className="sk" style={{width:50,height:36,borderRadius:10}}/>
+        </div>
+        <div className="sk" style={{width:"100%",height:10,borderRadius:6}}/>
+      </div>
+      {/* Cards skeleton */}
+      <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:12}}>
+        {[1,2,3].map(i=><div key={i} style={{borderRadius:16,border:"1px solid rgba(255,255,255,0.08)",padding:"13px 15px",display:"flex",gap:14,alignItems:"center"}}><div className="sk" style={{width:42,height:42,borderRadius:13,flexShrink:0}}/><div style={{flex:1}}><div className="sk" style={{width:"60%",height:11,marginBottom:6}}/><div className="sk" style={{width:"90%",height:9}}/></div></div>)}
+      </div>
+      {/* Movers skeleton */}
+      <div style={{borderRadius:18,border:"1px solid rgba(255,255,255,0.08)",padding:"14px 15px"}}>
+        <div className="sk" style={{width:120,height:12,marginBottom:14}}/>
+        {[1,2,3].map(i=><div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 6px",borderBottom:i<3?"1px solid rgba(255,255,255,0.06)":"none"}}><div className="sk" style={{width:30,height:30,borderRadius:9,flexShrink:0}}/><div style={{flex:1}}><div className="sk" style={{width:"50%",height:10,marginBottom:5}}/><div className="sk" style={{width:"35%",height:8}}/></div><div className="sk" style={{width:60,height:28,borderRadius:8}}/></div>)}
+      </div>
     </div>
   );
 
@@ -643,8 +689,8 @@ export default function App(){
 
               {/* Net worth sparkline */}
               {sparkHist.length>1&&(
-                <div style={{height:36,marginBottom:14}}>
-                  <Spark data={sparkHist} color="#818CF8" h={36}/>
+                <div style={{height:52,marginBottom:14}}>
+                  <Spark data={sparkHist} color="#818CF8" h={52}/>
                 </div>
               )}
 
@@ -1248,7 +1294,7 @@ export default function App(){
       </nav>
 
       {/* OVERLAYS */}
-      <ProfilePanel open={profOpen} onClose={()=>setProfOpen(false)} photo={profilePhoto} onPhotoChange={setProfilePhoto} name="Gift"/>
+      <ProfilePanel open={profOpen} onClose={()=>setProfOpen(false)} photo={profilePhoto} onPhotoChange={setProfilePhoto} name="Gift" darkMode={darkMode} setDarkMode={setDarkMode}/>
       <FundPanel fund={selFund} onClose={()=>setSelFund(null)}/>
       <AIPanel open={aiOpen} onClose={()=>setAiOpen(false)} holdings={holdings} debts={debts} spendingMonths={spendingMonths}/>
       <DebugPanel open={debugOpen} onClose={()=>setDebugOpen(false)} portRaw={portRaw} spendRaw={spendRaw} portErr={portErr} spendErr={spendErr}/>
