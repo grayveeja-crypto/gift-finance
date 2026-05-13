@@ -350,10 +350,7 @@ function ProfilePanel({open,onClose,photo,onPhotoChange,name,darkMode,setDarkMod
         ))}
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"11px 0",borderBottom:`1px solid ${T.border}`}}>
           <span style={{fontSize:12,color:T.muted}}>Appearance</span>
-          <button onClick={()=>setDarkMode(d=>!d)} style={{display:"flex",alignItems:"center",gap:6,background:"rgba(255,255,255,0.06)",border:`1px solid ${T.border}`,borderRadius:20,padding:"4px 12px",cursor:"pointer",fontSize:11,fontWeight:600,color:T.text2}}>
-            <span style={{fontSize:13}}>{darkMode?"☀️":"🌙"}</span>
-            {darkMode?"Light mode":"Dark mode"}
-          </button>
+          <span style={{fontSize:11,color:T.dim,fontStyle:"italic"}}>Dark mode only · coming soon</span>
         </div>
       </div>
     </div>
@@ -664,17 +661,17 @@ export default function App(){
         {/* ══════════════════════════════════════════════════════
             OVERVIEW — Session 1 redesign
         ══════════════════════════════════════════════════════ */}
-        {tab==="overview"&&(<div style={{display:"flex",flexDirection:"column",gap:12}}>
+        {tab==="overview"&&(<div style={{display:"flex",flexDirection:"column",gap:9}}>
 
           {/* ① NET WORTH HERO ─────────────────────────────────── */}
           <div style={{borderRadius:22,overflow:"hidden",background:"linear-gradient(145deg,#0D1035 0%,#080C20 60%,#060912 100%)",border:"1px solid rgba(99,102,241,0.25)",position:"relative"}}>
             {/* Glow orb */}
             <div style={{position:"absolute",top:-40,right:-40,width:160,height:160,borderRadius:"50%",background:"radial-gradient(circle,rgba(99,102,241,0.18) 0%,transparent 70%)",pointerEvents:"none"}}/>
-            <div style={{padding:"18px 18px 14px"}}>
+            <div style={{padding:"14px 16px 12px"}}>
               <div style={{fontSize:9,fontWeight:700,color:"#818CF8",textTransform:"uppercase",letterSpacing:".1em",marginBottom:8}}>Net Worth · Asset Accumulation Phase</div>
 
               {/* Big NW number */}
-              <div style={{fontFamily:T.mono,fontSize:38,fontWeight:900,color:T.text,letterSpacing:"-2px",lineHeight:1,marginBottom:4}}>
+              <div style={{fontFamily:T.mono,fontSize:34,fontWeight:900,color:T.text,letterSpacing:"-2px",lineHeight:1,marginBottom:4}}>
                 <Counter to={NW} dur={1100}/>
               </div>
 
@@ -689,8 +686,8 @@ export default function App(){
 
               {/* Net worth sparkline */}
               {sparkHist.length>1&&(
-                <div style={{height:52,marginBottom:14}}>
-                  <Spark data={sparkHist} color="#818CF8" h={52}/>
+                <div style={{height:40,marginBottom:10}}>
+                  <Spark data={sparkHist} color="#818CF8" h={40}/>
                 </div>
               )}
 
