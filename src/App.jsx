@@ -763,8 +763,8 @@ export default function App(){
                 <div style={{fontSize:10,color:T.muted,marginTop:2}}>฿9,584/mo · SCB savings · target 4 months</div>
               </div>
               <div style={{textAlign:"right"}}>
-                <div style={{fontFamily:T.mono,fontSize:22,fontWeight:900,color:T.gold,lineHeight:1}}>{EF_PCT.toFixed(0)}%</div>
-                <div style={{fontSize:9,color:T.muted,marginTop:2}}>{fmt(EF_BAL)} of {fmt(EF_TARGET)}</div>
+                    <div style={{fontFamily:T.mono,fontSize:22,fontWeight:900,color:T.gold,lineHeight:1}}>{(EF_BAL/35750).toFixed(1)}<span style={{fontSize:12,fontWeight:600}}> mo</span></div>
+                <div style={{fontSize:9,color:T.muted,marginTop:2}}>{fmt(EF_BAL)} of {fmt(EF_TARGET)} · {EF_PCT.toFixed(0)}% complete</div>
               </div>
             </div>
 
