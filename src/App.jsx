@@ -611,7 +611,7 @@ export default function App(){
   );
 
   return(
-    <div style={{fontFamily:"'Inter','DM Sans',sans-serif",background:"#060912",color:"#FFFFFF",minHeight:"100vh",maxWidth:480,margin:"0 auto",position:"relative",overflowX:"hidden",overflowY:"auto",WebkitFontSmoothing:"antialiased"}}>
+    <div style={{fontFamily:"'Inter','DM Sans',sans-serif",background:"#060912",color:"#FFFFFF",minHeight:"100vh",width:"100%",maxWidth:480,margin:"0 auto",position:"relative",overflow:"hidden",WebkitFontSmoothing:"antialiased"}}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;700&display=swap');
         @keyframes slideIn  {from{transform:translateX(100%)}to{transform:translateX(0)}}
@@ -656,7 +656,7 @@ export default function App(){
         ))}
       </nav>
 
-      <main className="tc" style={{padding:"14px 13px 90px"}}>
+      <main className="tc" style={{padding:"12px 12px 90px",overflowX:"hidden"}}>
 
         {/* ══════════════════════════════════════════════════════
             OVERVIEW — Session 1 redesign
@@ -679,7 +679,7 @@ export default function App(){
               <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:16}}>
                 <div style={{display:"inline-flex",alignItems:"center",gap:4,fontSize:11,fontWeight:700,color:WDAILY>=0?T.green:T.red,background:WDAILY>=0?"rgba(74,222,128,0.1)":"rgba(248,113,113,0.1)",border:`1px solid ${WDAILY>=0?"rgba(74,222,128,0.2)":"rgba(248,113,113,0.2)"}`,padding:"3px 9px",borderRadius:999}}>
                   {WDAILY>=0?<TrendingUp size={11}/>:<TrendingDown size={11}/>}
-                  {sgn(WDAILY)}{fd(WDAILY)}% today
+                  {sgn(WDAILY)}{fd(WDAILY)}% last update
                 </div>
                 <span style={{fontSize:10,color:T.muted}}>Portfolio {fmt(TOTAL)} − Debt {fmt(DEBT)}</span>
               </div>
@@ -788,7 +788,7 @@ export default function App(){
                 ))}
               </div>
               <div style={{fontSize:9,fontWeight:600,color:EF_MO_LEFT>0?T.muted:T.green}}>
-                {EF_MO_LEFT>0?`~${EF_MO_LEFT} months to complete`:"🎉 Complete — Phase 2 unlocked!"}
+                {EF_MO_LEFT>0?`฿9,584/mo · done in ~${EF_MO_LEFT} months`:"🎉 Complete — Phase 2 unlocked!"}
               </div>
             </div>
 
@@ -1209,10 +1209,10 @@ export default function App(){
           {id:"spending",    label:"Spend", Icon:CreditCard},
           {id:"planning",    label:"Plan",  Icon:Target},
         ].map(n=>(
-          <button key={n.id} onClick={()=>n.special?setDebugOpen(true):setTab(n.id)}
+          <button key={n.id} onClick={()=>!n.special&&setTab(n.id)}
             style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end",gap:3,background:"transparent",border:"none",cursor:"pointer",color:tab===n.id?"#818CF8":T.inactive,transition:"color .15s",paddingTop:n.special?0:10,paddingBottom:0}}>
             {n.special
-              ?<div style={{width:46,height:46,borderRadius:"50%",background:"linear-gradient(135deg,#6366F1,#38BDF8)",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 0 24px rgba(99,102,241,0.6)",transform:"translateY(-10px)"}}>
+              ?<div onClick={()=>window.open("https://docs.google.com/spreadsheets/d/1l_EJDb5x35uRJzf1FuQOFjq0pCacvLAp_lsP2uGaWFM/edit?gid=1278352958#gid=1278352958","_blank")} style={{width:46,height:46,borderRadius:"50%",background:"linear-gradient(135deg,#6366F1,#38BDF8)",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 0 24px rgba(99,102,241,0.6)",transform:"translateY(-10px)",cursor:"pointer"}}>
                 <Plus size={20} color="white"/>
               </div>
               :<><n.Icon size={17} color={tab===n.id?"#818CF8":T.inactive}/><span style={{fontSize:9,fontWeight:700,letterSpacing:".01em"}}>{n.label}</span></>
