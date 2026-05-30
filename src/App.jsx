@@ -207,16 +207,17 @@ function parseCF(raw){
   for(const tab of tabs){
     const rows=s2o(Array.isArray(tab)?tab:[]);
     if(!rows.length) continue;
-    const l=rows[rows.length-1]||rows[0];
+    // Find last row with actual income data (skip empty trailing rows)
+    const l=[...rows].reverse().find(r=>pn(r?.Income||r?.income||0)>0);
+    if(!l) continue;
     const income=pn(l?.Income||l?.income||0);
-    if(income<=0) continue;
     const rp=pn(l?.["Unallocated Cash"]||l?.["Unallocated Cash %"]||0);
     return {
       date:String(l?.Date||""), income, expenses:pn(l?.Expenses||0),
       travelFund:pn(l?.["Travel Fund"]||0),
       emergencyFund:pn(l?.["Emergency Fund"]||0),
       cumBalance:pn(l?.["Cumulative Balance"]||0),
-      investments:pn(l?.["Investments"]||0),
+      investments:pn(l?.["Investments "]||l?.["Investments"]||0),
       unallocatedPct:rp<2?rp*100:rp,
     };
   }
