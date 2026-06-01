@@ -140,7 +140,7 @@ function parseHoldings(raw){
       const rawT=pn(r["Unrealized Gain/Loss %"]||r["total_return"]||0);
       const rawType=String(r["Category"]||r["Portfolio"]||r["Type"]||"Retirement").trim();
       const name=String(r["Name"]||r["Fund Name"]||code).trim();
-      const cost=pn(r["Cost Basis"]||r["cost_basis"]||r["Starting Cost Basis"]||0)+pn(r["New Contributions"]||0)||pn(r["Cost Basis"]||0);
+      const cost=pn(r["Cost Basis"]||r["cost_basis"]||0)||pn(r["Starting Cost Basis"]||0)+pn(r["New Contributions"]||0);
       return {
         code, name,
         type: rawType.toLowerCase().includes("personal")?"Personal":"Retirement",
