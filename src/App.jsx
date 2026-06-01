@@ -636,8 +636,7 @@ export default function App(){
         @keyframes shimmer  {0%{background-position:-200% 0}100%{background-position:200% 0}}
         @keyframes fillBar  {from{width:0}to{width:var(--w)}}
         .tc  {animation:fadeIn .22s ease-out}
-        @media(min-width:760px){.desktop-sidebar{display:flex!important;}}
-        @media(min-width:760px){.hide-on-desktop{display:none!important;}} @media(min-width:760px){.main-content{padding-bottom:24px!important;}}
+
         .hrow{transition:background .12s;cursor:pointer;border-radius:12px;}
         .hrow:hover{background:rgba(99,102,241,0.08)!important;}
         *{box-sizing:border-box;}
@@ -663,7 +662,7 @@ export default function App(){
       </header>
 
       {/* ── TAB NAV ── */}
-      <nav className="hide-on-desktop" style={{position:"sticky",top:54,zIndex:90,background:darkMode?"rgba(6,9,18,0.96)":"rgba(248,250,252,0.96)",backdropFilter:"blur(16px)",borderBottom:`1px solid ${TH.border}`,display:"flex",overflowX:"auto",scrollbarWidth:"none",padding:"0 4px"}}>
+      <nav style={{position:"sticky",top:54,zIndex:90,background:darkMode?"rgba(6,9,18,0.96)":"rgba(248,250,252,0.96)",backdropFilter:"blur(16px)",borderBottom:`1px solid ${TH.border}`,display:"flex",overflowX:"auto",scrollbarWidth:"none",padding:"0 4px"}}>
         {TABS.map(({id,label,Icon})=>(
           <button key={id} onClick={()=>setTab(id)} style={{flex:"0 0 auto",padding:"0 18px",height:43,background:"transparent",border:"none",cursor:"pointer",color:tab===id?TH.text:TH.inactive,fontWeight:tab===id?700:500,fontSize:12,position:"relative",display:"flex",alignItems:"center",gap:5,transition:"color .18s",whiteSpace:"nowrap"}}>
             <Icon size={14} style={{opacity:tab===id?1:.7}}/>{label}
@@ -1335,7 +1334,7 @@ export default function App(){
       </main>
 
       {/* ── BOTTOM NAV ── */}
-      <nav className="hide-on-desktop" style={{position:"fixed",bottom:0,left:0,right:0,background:darkMode?"rgba(6,9,18,0.97)":"rgba(248,250,252,0.97)",backdropFilter:"blur(20px)",borderTop:`1px solid ${TH.border}`,display:"flex",alignItems:"flex-end",padding:"0 0 14px",zIndex:100}}>
+      <nav style={{position:"fixed",bottom:0,left:0,right:0,background:darkMode?"rgba(6,9,18,0.97)":"rgba(248,250,252,0.97)",backdropFilter:"blur(20px)",borderTop:`1px solid ${TH.border}`,display:"flex",alignItems:"flex-end",padding:"0 0 14px",zIndex:100}}>
         {[
           {id:"overview",    label:"Home",  Icon:Home},
           {id:"investments", label:"Invest",Icon:BarChart2},
