@@ -506,6 +506,8 @@ export default function App(){
   const [loading,setLoading]=useState(true); const [refreshing,setRefreshing]=useState(false);
   const [lastUp,setLastUp]=useState(null);
   const [selFund,setSelFund]=useState(null);
+  const [selCat,setSelCat]=useState(null);
+  const [selAlloc,setSelAlloc]=useState(null);
   const [quickMenu,setQuickMenu]=useState(false); const [aiOpen,setAiOpen]=useState(false);
   const [debugOpen,setDebugOpen]=useState(false); const [profOpen,setProfOpen]=useState(false);
   const [profilePhoto,setProfilePhoto]=useState(()=>{
@@ -623,8 +625,7 @@ export default function App(){
   );
 
   return(
-    <div style={{fontFamily:"'Inter','DM Sans',sans-serif",background:darkMode?"#060912":"#F8FAFC",color:TH.text,minHeight:"100vh",display:"flex",justifyContent:"center",WebkitFontSmoothing:"antialiased"}}>
-    <div style={{width:"100%",maxWidth:480,position:"relative",overflow:"hidden",background:darkMode?"#060912":"#F8FAFC",boxShadow:"0 0 80px rgba(0,0,0,0.5)"}}>
+    <div style={{fontFamily:"'Inter','DM Sans',sans-serif",background:darkMode?"#060912":"#F8FAFC",color:TH.text,minHeight:"100vh",maxWidth:480,margin:"0 auto",position:"relative",overflow:"hidden",WebkitFontSmoothing:"antialiased"}}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;700&display=swap');
         @keyframes slideIn  {from{transform:translateX(100%)}to{transform:translateX(0)}}
@@ -635,6 +636,8 @@ export default function App(){
         @keyframes shimmer  {0%{background-position:-200% 0}100%{background-position:200% 0}}
         @keyframes fillBar  {from{width:0}to{width:var(--w)}}
         .tc  {animation:fadeIn .22s ease-out}
+        @media(min-width:760px){.desktop-sidebar{display:flex!important;}}
+        @media(min-width:760px){.hide-on-desktop{display:none!important;}} @media(min-width:760px){.main-content{padding-bottom:24px!important;}}
         .hrow{transition:background .12s;cursor:pointer;border-radius:12px;}
         .hrow:hover{background:rgba(99,102,241,0.08)!important;}
         *{box-sizing:border-box;}
@@ -660,7 +663,7 @@ export default function App(){
       </header>
 
       {/* ── TAB NAV ── */}
-      <nav style={{position:"sticky",top:54,zIndex:90,background:darkMode?"rgba(6,9,18,0.96)":"rgba(248,250,252,0.96)",backdropFilter:"blur(16px)",borderBottom:`1px solid ${TH.border}`,display:"flex",overflowX:"auto",scrollbarWidth:"none",padding:"0 4px"}}>
+      <nav className="hide-on-desktop" style={{position:"sticky",top:54,zIndex:90,background:darkMode?"rgba(6,9,18,0.96)":"rgba(248,250,252,0.96)",backdropFilter:"blur(16px)",borderBottom:`1px solid ${TH.border}`,display:"flex",overflowX:"auto",scrollbarWidth:"none",padding:"0 4px"}}>
         {TABS.map(({id,label,Icon})=>(
           <button key={id} onClick={()=>setTab(id)} style={{flex:"0 0 auto",padding:"0 18px",height:43,background:"transparent",border:"none",cursor:"pointer",color:tab===id?TH.text:TH.inactive,fontWeight:tab===id?700:500,fontSize:12,position:"relative",display:"flex",alignItems:"center",gap:5,transition:"color .18s",whiteSpace:"nowrap"}}>
             <Icon size={14} style={{opacity:tab===id?1:.7}}/>{label}
@@ -669,7 +672,7 @@ export default function App(){
         ))}
       </nav>
 
-      <main className="tc" style={{padding:"12px 12px 90px",overflowX:"hidden"}}>
+      <main className="tc" style={{padding:"12px 12px 90px",overflowX:"hidden"}} className="main-content">
 
         {/* ══════════════════════════════════════════════════════
             OVERVIEW — Session 1 redesign
@@ -859,30 +862,59 @@ export default function App(){
             ))}
           </div>
 
-          {/* ASSET ALLOCATION DONUT */}
-          <div style={cardStyle}>
-            <div style={{fontSize:12,fontWeight:700,marginBottom:14}}>Asset Allocation</div>
-            <div style={{display:"flex",alignItems:"center",gap:16}}>
-              <div style={{flexShrink:0}}>
-                <PieChart width={120} height={120}>
-                  <Pie data={ALLOC} cx={55} cy={55} innerRadius={36} outerRadius={55} paddingAngle={2} dataKey="val" strokeWidth={0}>
-                    {ALLOC.map((a,i)=><Cell key={i} fill={a.color}/>)}
-                  </Pie>
-                </PieChart>
-              </div>
-              <div style={{flex:1,display:"flex",flexDirection:"column",gap:6}}>
-                {ALLOC.map((a,i)=>(
-                  <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                    <div style={{display:"flex",alignItems:"center",gap:6}}>
-                      <div style={{width:7,height:7,borderRadius:"50%",background:a.color,flexShrink:0}}/>
-                      <span style={{fontSize:10,color:TH.text2,fontWeight:500}}>{a.cls}</span>
+          {/* ASSET ALLOCATION DONUT — interactive */}
+          {(()=>{
+            const selA=ALLOC.find(a=>a.cls===selAlloc);
+            return(
+              <div style={cardStyle}>
+                <div style={{fontSize:12,fontWeight:700,marginBottom:14}}>Asset Allocation</div>
+                <div style={{display:"flex",alignItems:"center",gap:16}}>
+                  <div style={{flexShrink:0,position:"relative"}}>
+                    <PieChart width={140} height={140}>
+                      <Pie data={ALLOC} cx={65} cy={65} innerRadius={42} outerRadius={60} paddingAngle={2} dataKey="val" strokeWidth={0}
+                        isAnimationActive={true} animationDuration={600}
+                        onClick={d=>setSelAlloc(selAlloc===d.cls?null:d.cls)}>
+                        {ALLOC.map((a,i)=>(
+                          <Cell key={i} fill={a.color} opacity={selAlloc&&selAlloc!==a.cls?0.3:1} style={{cursor:"pointer",transition:"opacity .2s"}}/>
+                        ))}
+                      </Pie>
+                    </PieChart>
+                    <div style={{position:"absolute",top:"50%",left:"50%",transform:"translate(-50%,-50%)",textAlign:"center",pointerEvents:"none",width:72}}>
+                      {selA?(
+                        <>
+                          <div style={{fontFamily:TH.mono,fontSize:10,fontWeight:800,color:selA.color,lineHeight:1.2}}>{fmt(selA.val)}</div>
+                          <div style={{fontSize:7,color:TH.muted,marginTop:2,lineHeight:1.3}}>{selA.cls}</div>
+                        </>
+                      ):(
+                        <>
+                          <div style={{fontFamily:TH.mono,fontSize:10,fontWeight:800,color:TH.text}}>{fmt(TOTAL)}</div>
+                          <div style={{fontSize:7,color:TH.muted,marginTop:2}}>total</div>
+                        </>
+                      )}
                     </div>
-                    <span style={{fontSize:10,fontWeight:700,color:TH.text,fontFamily:TH.mono}}>{a.pct}%</span>
                   </div>
-                ))}
+                  <div style={{flex:1,display:"flex",flexDirection:"column",gap:7}}>
+                    {ALLOC.map((a,i)=>{
+                      const isSelected=selAlloc===a.cls;
+                      return(
+                        <div key={i} onClick={()=>setSelAlloc(selAlloc===a.cls?null:a.cls)}
+                          style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",opacity:selAlloc&&!isSelected?0.35:1,transition:"opacity .2s",padding:"2px 0"}}>
+                          <div style={{display:"flex",alignItems:"center",gap:6}}>
+                            <div style={{width:isSelected?8:6,height:isSelected?8:6,borderRadius:"50%",background:a.color,flexShrink:0,transition:"all .2s"}}/>
+                            <span style={{fontSize:9,color:isSelected?TH.text:TH.text2,fontWeight:isSelected?700:500}}>{a.cls}</span>
+                          </div>
+                          <div style={{textAlign:"right"}}>
+                            <span style={{fontSize:9,fontWeight:700,color:isSelected?a.color:TH.text,fontFamily:TH.mono}}>{a.pct}%</span>
+                            {isSelected&&<div style={{fontSize:8,color:TH.muted,fontFamily:TH.mono}}>{fmt(a.val)}</div>}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
               </div>
-            </div>
-          </div>
+            );
+          })()}
 
           <div style={cardStyle}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:8}}>
@@ -984,29 +1016,62 @@ export default function App(){
             {CAT_DATA.length===0
               ?<div style={{textAlign:"center",padding:"16px 0",color:TH.muted,fontSize:11}}>No data yet</div>
               :<>
-                {/* Donut chart */}
+                {/* Interactive Donut chart */}
                 <div style={{display:"flex",alignItems:"center",gap:16,marginBottom:14}}>
                   <div style={{flexShrink:0,position:"relative"}}>
-                    <PieChart width={120} height={120}>
-                      <Pie data={CAT_DATA.slice(0,8)} cx={55} cy={55} innerRadius={36} outerRadius={55} paddingAngle={2} dataKey="v" strokeWidth={0}>
-                        {CAT_DATA.slice(0,8).map((c,i)=><Cell key={i} fill={CAT_COLOR[c.name]||TH.accent}/>)}
+                    <PieChart width={140} height={140}>
+                      <Pie
+                        data={CAT_DATA.slice(0,8)}
+                        cx={65} cy={65}
+                        innerRadius={42} outerRadius={60}
+                        paddingAngle={2}
+                        dataKey="v"
+                        strokeWidth={0}
+                        isAnimationActive={true}
+                        animationBegin={0}
+                        animationDuration={600}
+                        onClick={(d)=>setSelCat(selCat===d.name?null:d.name)}
+                      >
+                        {CAT_DATA.slice(0,8).map((c,i)=>(
+                          <Cell
+                            key={i}
+                            fill={CAT_COLOR[c.name]||TH.accent}
+                            opacity={selCat&&selCat!==c.name?0.35:1}
+                            style={{cursor:"pointer",transition:"opacity .2s"}}
+                          />
+                        ))}
                       </Pie>
                     </PieChart>
-                    <div style={{position:"absolute",top:"50%",left:"50%",transform:"translate(-50%,-50%)",textAlign:"center",pointerEvents:"none"}}>
-                      <div style={{fontFamily:TH.mono,fontSize:11,fontWeight:800,color:TH.text}}>{fmt(CM.spent)}</div>
-                      <div style={{fontSize:8,color:TH.muted}}>spent</div>
+                    <div style={{position:"absolute",top:"50%",left:"50%",transform:"translate(-50%,-50%)",textAlign:"center",pointerEvents:"none",width:70}}>
+                      {selCat?(
+                        <>
+                          <div style={{fontFamily:TH.mono,fontSize:10,fontWeight:800,color:CAT_COLOR[selCat]||TH.accent,lineHeight:1.2}}>{fmt(CAT_DATA.find(c=>c.name===selCat)?.v||0)}</div>
+                          <div style={{fontSize:7,color:TH.muted,marginTop:2,lineHeight:1.3}}>{selCat}</div>
+                        </>
+                      ):(
+                        <>
+                          <div style={{fontFamily:TH.mono,fontSize:10,fontWeight:800,color:TH.text}}>{fmt(CM.spent)}</div>
+                          <div style={{fontSize:7,color:TH.muted,marginTop:2}}>spent</div>
+                        </>
+                      )}
                     </div>
                   </div>
-                  <div style={{flex:1,display:"flex",flexDirection:"column",gap:5}}>
+                  <div style={{flex:1,display:"flex",flexDirection:"column",gap:6}}>
                     {CAT_DATA.slice(0,6).map((c,i)=>{
                       const pct=CM.spent>0?(c.v/CM.spent*100):0;
+                      const isSelected=selCat===c.name;
                       return(
-                        <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                        <div key={i}
+                          onClick={()=>setSelCat(selCat===c.name?null:c.name)}
+                          style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",opacity:selCat&&!isSelected?0.4:1,transition:"opacity .2s",padding:"2px 0"}}>
                           <div style={{display:"flex",alignItems:"center",gap:5}}>
-                            <div style={{width:6,height:6,borderRadius:"50%",background:CAT_COLOR[c.name]||TH.accent,flexShrink:0}}/>
-                            <span style={{fontSize:9,color:TH.text2,fontWeight:500}}>{c.name}</span>
+                            <div style={{width:isSelected?8:6,height:isSelected?8:6,borderRadius:"50%",background:CAT_COLOR[c.name]||TH.accent,flexShrink:0,transition:"all .2s"}}/>
+                            <span style={{fontSize:9,color:isSelected?TH.text:TH.text2,fontWeight:isSelected?700:500}}>{c.name}</span>
                           </div>
-                          <span style={{fontSize:9,fontWeight:700,color:TH.text,fontFamily:TH.mono}}>{pct.toFixed(0)}%</span>
+                          <div style={{textAlign:"right"}}>
+                            <span style={{fontSize:9,fontWeight:700,color:isSelected?CAT_COLOR[c.name]||TH.accent:TH.text,fontFamily:TH.mono}}>{pct.toFixed(0)}%</span>
+                            {isSelected&&<div style={{fontSize:8,color:TH.muted,fontFamily:TH.mono}}>{fmt(c.v)}</div>}
+                          </div>
                         </div>
                       );
                     })}
@@ -1270,7 +1335,7 @@ export default function App(){
       </main>
 
       {/* ── BOTTOM NAV ── */}
-      <nav style={{position:"fixed",bottom:0,left:0,right:0,background:darkMode?"rgba(6,9,18,0.97)":"rgba(248,250,252,0.97)",backdropFilter:"blur(20px)",borderTop:`1px solid ${TH.border}`,display:"flex",alignItems:"flex-end",padding:"0 0 14px",zIndex:100}}>
+      <nav className="hide-on-desktop" style={{position:"fixed",bottom:0,left:0,right:0,background:darkMode?"rgba(6,9,18,0.97)":"rgba(248,250,252,0.97)",backdropFilter:"blur(20px)",borderTop:`1px solid ${TH.border}`,display:"flex",alignItems:"flex-end",padding:"0 0 14px",zIndex:100}}>
         {[
           {id:"overview",    label:"Home",  Icon:Home},
           {id:"investments", label:"Invest",Icon:BarChart2},
@@ -1290,7 +1355,6 @@ export default function App(){
         ))}
       </nav>
 
-      </div>{/* end inner wrapper */}
       {/* QUICK MENU */}
       {quickMenu&&(
         <div style={{position:"fixed",inset:0,zIndex:200}} onClick={()=>setQuickMenu(false)}>
