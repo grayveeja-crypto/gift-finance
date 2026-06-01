@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Home, BarChart2, CreditCard, Target, Plus, RefreshCw, ChevronRight, X, Send, RotateCcw, Search, TrendingUp, TrendingDown, Shield, Zap } from "lucide-react";
-import { AreaChart, Area, ResponsiveContainer } from "recharts";
+import { AreaChart, Area, ResponsiveContainer, PieChart, Pie, Cell, Tooltip } from "recharts";
 
 const API_PORT  = "https://script.google.com/macros/s/AKfycbwO0C0-0U8WonDCYuvOxjGa-kxCWmO_bMhwbJ3pNiwsiXIz-S_-4cxjDwoIRY7uqDsu/exec";
 const API_SPEND = "https://script.google.com/macros/s/AKfycbx63wYg7kuFh9zZAs4V6FOfV5XxwPgmRB9v9-G8pobCxGn27NXaJXZhxDsMKvcLDcbt/exec";
@@ -508,7 +508,9 @@ export default function App(){
   const [selFund,setSelFund]=useState(null);
   const [quickMenu,setQuickMenu]=useState(false); const [aiOpen,setAiOpen]=useState(false);
   const [debugOpen,setDebugOpen]=useState(false); const [profOpen,setProfOpen]=useState(false);
-  const [profilePhoto,setProfilePhoto]=useState(null);
+  const [profilePhoto,setProfilePhoto]=useState(()=>{
+    try{ return localStorage.getItem('gf_photo')||null; }catch{ return null; }
+  });
   const [search,setSearch]=useState(""); const [fCls,setFCls]=useState("All");
   const [expandDebt,setExpandDebt]=useState(null); const [selMonth,setSelMonth]=useState(0);
 
@@ -560,7 +562,7 @@ export default function App(){
   const EF_BAL      = cashFlow.emergencyFund||0;
   const EF_TARGET   = 143000;
   const EF_PCT      = Math.min(100,EF_BAL/EF_TARGET*100);
-  const EF_MO_LEFT  = EF_BAL<EF_TARGET?Math.ceil((EF_TARGET-EF_BAL)/9584):0;
+  const EF_MO_LEFT  = EF_BAL<EF_TARGET?Math.ceil((EF_TARGET-EF_BAL)/8000):0;
   const SAVINGS_RATE= cashFlow.income>0?Math.round(((cashFlow.income-(CM.spent||0))/cashFlow.income)*100):0;
   const sparkHist   = history.map(h=>({v:h.portfolio-h.debt}));
 
@@ -621,7 +623,8 @@ export default function App(){
   );
 
   return(
-    <div style={{fontFamily:"'Inter','DM Sans',sans-serif",background:"#060912",color:"#FFFFFF",minHeight:"100vh",width:"100%",maxWidth:480,margin:"0 auto",position:"relative",overflow:"hidden",WebkitFontSmoothing:"antialiased"}}>
+    <div style={{fontFamily:"'Inter','DM Sans',sans-serif",background:darkMode?"#060912":"#F8FAFC",color:TH.text,minHeight:"100vh",display:"flex",justifyContent:"center",WebkitFontSmoothing:"antialiased"}}>
+    <div style={{width:"100%",maxWidth:480,position:"relative",overflow:"hidden",background:darkMode?"#060912":"#F8FAFC",boxShadow:"0 0 80px rgba(0,0,0,0.5)"}}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;700&display=swap');
         @keyframes slideIn  {from{transform:translateX(100%)}to{transform:translateX(0)}}
@@ -770,7 +773,7 @@ export default function App(){
                   </div>
                 </div>
                 <div style={{fontSize:15,fontWeight:800,color:TH.text}}>Emergency Fund</div>
-                <div style={{fontSize:10,color:TH.muted,marginTop:2}}>฿9,584/mo · SCB savings · target 4 months</div>
+                <div style={{fontSize:10,color:TH.muted,marginTop:2}}>฿8,000/mo · SCB savings · target 4 months</div>
               </div>
               <div style={{textAlign:"right"}}>
                     <div style={{fontFamily:TH.mono,fontSize:22,fontWeight:900,color:TH.gold,lineHeight:1}}>{(EF_BAL/35750).toFixed(1)}<span style={{fontSize:12,fontWeight:600}}> mo</span></div>
@@ -798,7 +801,7 @@ export default function App(){
                 ))}
               </div>
               <div style={{fontSize:9,fontWeight:600,color:EF_MO_LEFT>0?TH.muted:TH.green}}>
-                {EF_MO_LEFT>0?`฿9,584/mo · done in ~${EF_MO_LEFT} months`:"🎉 Complete — Phase 2 unlocked!"}
+                {EF_MO_LEFT>0?`฿8,000/mo · done in ~${EF_MO_LEFT} months`:"🎉 Complete — Phase 2 unlocked!"}
               </div>
             </div>
 
@@ -806,7 +809,7 @@ export default function App(){
             {EF_MO_LEFT>0&&(
               <div style={{marginTop:10,padding:"7px 10px",background:"rgba(56,189,248,0.05)",border:"1px solid rgba(56,189,248,0.12)",borderRadius:10,display:"flex",alignItems:"center",gap:7}}>
                 <Shield size={11} color={TH.accent2} style={{flexShrink:0}}/>
-                <span style={{fontSize:10,color:TH.muted}}>Phase 2 unlocks <span style={{color:TH.accent2,fontWeight:600}}>+฿9,584/mo</span> for Thai ESG or RMF top-up</span>
+                <span style={{fontSize:10,color:TH.muted}}>Phase 2 unlocks <span style={{color:TH.accent2,fontWeight:600}}>+฿8,000/mo</span> when complete — invest or top-up RMF</span>
               </div>
             )}
           </div>
@@ -854,6 +857,31 @@ export default function App(){
                 <div style={{fontSize:9,color:TH.muted}}>{s.pct}% of portfolio</div>
               </div>
             ))}
+          </div>
+
+          {/* ASSET ALLOCATION DONUT */}
+          <div style={cardStyle}>
+            <div style={{fontSize:12,fontWeight:700,marginBottom:14}}>Asset Allocation</div>
+            <div style={{display:"flex",alignItems:"center",gap:16}}>
+              <div style={{flexShrink:0}}>
+                <PieChart width={120} height={120}>
+                  <Pie data={ALLOC} cx={55} cy={55} innerRadius={36} outerRadius={55} paddingAngle={2} dataKey="val" strokeWidth={0}>
+                    {ALLOC.map((a,i)=><Cell key={i} fill={a.color}/>)}
+                  </Pie>
+                </PieChart>
+              </div>
+              <div style={{flex:1,display:"flex",flexDirection:"column",gap:6}}>
+                {ALLOC.map((a,i)=>(
+                  <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                    <div style={{display:"flex",alignItems:"center",gap:6}}>
+                      <div style={{width:7,height:7,borderRadius:"50%",background:a.color,flexShrink:0}}/>
+                      <span style={{fontSize:10,color:TH.text2,fontWeight:500}}>{a.cls}</span>
+                    </div>
+                    <span style={{fontSize:10,fontWeight:700,color:TH.text,fontFamily:TH.mono}}>{a.pct}%</span>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
 
           <div style={cardStyle}>
@@ -952,21 +980,52 @@ export default function App(){
           </div>
 
           <div style={cardStyle}>
-            <div style={{fontSize:12,fontWeight:700,marginBottom:12}}>By Category</div>
+            <div style={{fontSize:12,fontWeight:700,marginBottom:14}}>By Category</div>
             {CAT_DATA.length===0
               ?<div style={{textAlign:"center",padding:"16px 0",color:TH.muted,fontSize:11}}>No data yet</div>
-              :CAT_DATA.slice(0,9).map((c,i)=>{
-                const pct=CM.spent>0?(c.v/CM.spent*100):0;
-                return(
-                  <div key={i} style={{marginBottom:10}}>
-                    <div style={{display:"flex",justifyContent:"space-between",fontSize:11,marginBottom:4,alignItems:"center"}}>
-                      <div style={{display:"flex",alignItems:"center",gap:7}}><div style={{width:7,height:7,borderRadius:"50%",background:CAT_COLOR[c.name]||TH.accent,flexShrink:0}}/><span style={{fontWeight:600,color:TH.text2}}>{c.name}</span></div>
-                      <div style={{display:"flex",gap:7,alignItems:"center"}}><span style={{fontSize:9,color:TH.muted}}>{pct.toFixed(0)}%</span><span style={{fontWeight:700,fontFamily:TH.mono}}>{fmt(c.v)}</span></div>
+              :<>
+                {/* Donut chart */}
+                <div style={{display:"flex",alignItems:"center",gap:16,marginBottom:14}}>
+                  <div style={{flexShrink:0,position:"relative"}}>
+                    <PieChart width={120} height={120}>
+                      <Pie data={CAT_DATA.slice(0,8)} cx={55} cy={55} innerRadius={36} outerRadius={55} paddingAngle={2} dataKey="v" strokeWidth={0}>
+                        {CAT_DATA.slice(0,8).map((c,i)=><Cell key={i} fill={CAT_COLOR[c.name]||TH.accent}/>)}
+                      </Pie>
+                    </PieChart>
+                    <div style={{position:"absolute",top:"50%",left:"50%",transform:"translate(-50%,-50%)",textAlign:"center",pointerEvents:"none"}}>
+                      <div style={{fontFamily:TH.mono,fontSize:11,fontWeight:800,color:TH.text}}>{fmt(CM.spent)}</div>
+                      <div style={{fontSize:8,color:TH.muted}}>spent</div>
                     </div>
-                    <div style={{height:4,background:darkMode?"rgba(255,255,255,0.06)":"rgba(0,0,0,0.06)",borderRadius:999,overflow:"hidden"}}><div style={{height:"100%",width:`${Math.min(pct,100).toFixed(1)}%`,background:CAT_COLOR[c.name]||TH.accent,borderRadius:999}}/></div>
                   </div>
-                );
-              })
+                  <div style={{flex:1,display:"flex",flexDirection:"column",gap:5}}>
+                    {CAT_DATA.slice(0,6).map((c,i)=>{
+                      const pct=CM.spent>0?(c.v/CM.spent*100):0;
+                      return(
+                        <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                          <div style={{display:"flex",alignItems:"center",gap:5}}>
+                            <div style={{width:6,height:6,borderRadius:"50%",background:CAT_COLOR[c.name]||TH.accent,flexShrink:0}}/>
+                            <span style={{fontSize:9,color:TH.text2,fontWeight:500}}>{c.name}</span>
+                          </div>
+                          <span style={{fontSize:9,fontWeight:700,color:TH.text,fontFamily:TH.mono}}>{pct.toFixed(0)}%</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+                {/* Category bars — keep full detail */}
+                {CAT_DATA.slice(0,9).map((c,i)=>{
+                  const pct=CM.spent>0?(c.v/CM.spent*100):0;
+                  return(
+                    <div key={i} style={{marginBottom:10}}>
+                      <div style={{display:"flex",justifyContent:"space-between",fontSize:11,marginBottom:4,alignItems:"center"}}>
+                        <div style={{display:"flex",alignItems:"center",gap:7}}><div style={{width:7,height:7,borderRadius:"50%",background:CAT_COLOR[c.name]||TH.accent,flexShrink:0}}/><span style={{fontWeight:600,color:TH.text2}}>{c.name}</span></div>
+                        <div style={{display:"flex",gap:7,alignItems:"center"}}><span style={{fontSize:9,color:TH.muted}}>{pct.toFixed(0)}%</span><span style={{fontWeight:700,fontFamily:TH.mono}}>{fmt(c.v)}</span></div>
+                      </div>
+                      <div style={{height:4,background:darkMode?"rgba(255,255,255,0.06)":"rgba(0,0,0,0.06)",borderRadius:999,overflow:"hidden"}}><div style={{height:"100%",width:`${Math.min(pct,100).toFixed(1)}%`,background:CAT_COLOR[c.name]||TH.accent,borderRadius:999}}/></div>
+                    </div>
+                  );
+                })}
+              </>
             }
           </div>
 
@@ -1042,7 +1101,7 @@ export default function App(){
               <div style={{fontSize:9,color:TH.muted}}>1st of month · Gross ฿88,733</div>
             </div>
             {[
-              {dot:TH.gold,    label:"Emergency Fund",     amt:"฿9,584",  tag:"PHASE 1",   tc:TH.gold},
+              {dot:TH.gold,    label:"Emergency Fund",     amt:"฿8,000",  tag:"PHASE 1",   tc:TH.gold},
               {dot:"#818CF8", label:`DCA → ${DCA_FUND}`, amt:"฿10,000", tag:"THIS MONTH",tc:"#818CF8"},
               {dot:TH.accent2, label:"Japan Travel Fund",  amt:"฿10,000", tag:"KTB",       tc:TH.accent2},
               {dot:"#94A3B8", label:"Fixed Bills (auto)", amt:"฿35,816", tag:"AUTO",      tc:"#94A3B8"},
@@ -1231,6 +1290,7 @@ export default function App(){
         ))}
       </nav>
 
+      </div>{/* end inner wrapper */}
       {/* QUICK MENU */}
       {quickMenu&&(
         <div style={{position:"fixed",inset:0,zIndex:200}} onClick={()=>setQuickMenu(false)}>
@@ -1260,7 +1320,7 @@ export default function App(){
       )}
 
       {/* OVERLAYS */}
-      <ProfilePanel open={profOpen} onClose={()=>setProfOpen(false)} photo={profilePhoto} onPhotoChange={setProfilePhoto} name="Gift" darkMode={darkMode} setDarkMode={setDarkMode}/>
+      <ProfilePanel open={profOpen} onClose={()=>setProfOpen(false)} photo={profilePhoto} onPhotoChange={p=>{setProfilePhoto(p);try{localStorage.setItem('gf_photo',p);}catch{}}} name="Gift" darkMode={darkMode} setDarkMode={setDarkMode}/>
       <FundPanel fund={selFund} onClose={()=>setSelFund(null)}/>
       <AIPanel open={aiOpen} onClose={()=>setAiOpen(false)} holdings={holdings} debts={debts} spendingMonths={spendingMonths}/>
       <DebugPanel open={debugOpen} onClose={()=>setDebugOpen(false)} portRaw={portRaw} spendRaw={spendRaw} portErr={portErr} spendErr={spendErr}/>
