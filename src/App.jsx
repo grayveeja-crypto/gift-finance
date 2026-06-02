@@ -489,6 +489,13 @@ const TABS=[{id:"overview",label:"Overview",Icon:Home},{id:"investments",label:"
 const SAVINGS_CATS=["Japan Fund","Retirement","Emergency","Investment"];
 const FIXED_CATS  =["Housing","Internet","Phone","Mom","Subscriptions","Installment"];
 
+// ─── WINDOW SIZE HOOK ────────────────────────────────────────────────────────
+function useWindowWidth(){
+  const [w,setW]=useState(typeof window!=="undefined"?window.innerWidth:480);
+  useEffect(()=>{const h=()=>setW(window.innerWidth);window.addEventListener("resize",h);return()=>window.removeEventListener("resize",h);},[]);
+  return w;
+}
+
 export default function App(){
   const [tab,setTab]=useState("overview");
   const [holdings,setHoldings]=useState(FB_H);
@@ -501,6 +508,8 @@ export default function App(){
   const [portRaw,setPortRaw]=useState(null); const [spendRaw,setSpendRaw]=useState(null);
   const [portErr,setPortErr]=useState(null); const [spendErr,setSpendErr]=useState(null);
   const [darkMode,setDarkMode]=useState(true);
+  const windowWidth = useWindowWidth();
+  const isDesktop = windowWidth >= 900;
   const TH = darkMode ? T : LIGHT_T;
   const cardStyle = {background:TH.surf, border:`1px solid ${TH.border}`, borderRadius:18, padding:"14px 15px"};
   const [loading,setLoading]=useState(true); const [refreshing,setRefreshing]=useState(false);
@@ -623,6 +632,668 @@ export default function App(){
       </div>
     </div>
   );
+
+  // ─── DESKTOP LAYOUT (≥900px) ─────────────────────────────────────────────
+  if(isDesktop){
+    const GL = holdings.reduce((s,h)=>s+(h.value-h.cost),0);
+    const totalCost = holdings.reduce((s,h)=>s+h.cost,0);
+    const gainPct = totalCost>0?(GL/totalCost*100):0;
+    const selA = ALLOC.find(a=>a.cls===selAlloc);
+    const CAT_DATA_D = Object.entries(CM.cats&&Object.keys(CM.cats).length>0?CM.cats:(CM.transactions||[]).reduce((acc,t)=>{acc[t.cat]=(acc[t.cat]||0)+t.amount;return acc;},{})).filter(([,v])=>v>0).map(([k,v])=>({name:k,v})).sort((a,b)=>b.v-a.v);
+    const dcStyle = { background:darkMode?"rgba(255,255,255,0.04)":"rgba(0,0,0,0.04)", border:`1px solid ${TH.border}`, borderRadius:16, padding:"16px 18px" };
+
+    return(
+      <div style={{fontFamily:"'Inter','DM Sans',sans-serif",background:darkMode?"#080C18":"#F0F2F8",color:TH.text,minHeight:"100vh",display:"flex",WebkitFontSmoothing:"antialiased"}}>
+        <style>{`
+          @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;700&display=swap');
+          @keyframes slideIn{from{transform:translateX(100%)}to{transform:translateX(0)}}
+          @keyframes slideUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+          @keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
+          @keyframes bounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}
+          @keyframes spin{to{transform:rotate(360deg)}}
+          @keyframes shimmer{0%{background-position:-200% 0}100%{background-position:200% 0}}
+          .dhrow{transition:background .12s;cursor:pointer;border-radius:10px;}
+          .dhrow:hover{background:rgba(99,102,241,0.07)!important;}
+          *{box-sizing:border-box;}
+          ::-webkit-scrollbar{width:3px;height:3px;}
+          ::-webkit-scrollbar-thumb{background:rgba(99,102,241,0.3);border-radius:99px;}
+          input::placeholder{color:#6B7280;}
+        `}</style>
+
+        {/* ── LEFT SIDEBAR ── */}
+        <div style={{width:220,flexShrink:0,background:darkMode?"#060912":"#FFFFFF",borderRight:`1px solid ${TH.border}`,display:"flex",flexDirection:"column",position:"sticky",top:0,height:"100vh",overflowY:"auto"}}>
+          {/* Logo + profile */}
+          <div style={{padding:"20px 16px 14px",borderBottom:`1px solid ${TH.border}`}}>
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
+              <button onClick={()=>setProfOpen(true)} style={{width:38,height:38,borderRadius:"50%",border:"none",padding:0,cursor:"pointer",overflow:"hidden",background:"linear-gradient(135deg,#6366F1,#F472B6)",flexShrink:0}}>
+                {profilePhoto?<img src={profilePhoto} style={{width:"100%",height:"100%",objectFit:"cover"}} alt="G"/>:<span style={{fontSize:16,color:"white",fontWeight:700}}>G</span>}
+              </button>
+              <div>
+                <div style={{fontSize:13,fontWeight:800,color:TH.text}}>Gift</div>
+                <div style={{fontSize:10,color:TH.muted}}>Personal Finance</div>
+              </div>
+            </div>
+            {/* Live badge */}
+            <button onClick={()=>setDebugOpen(true)} style={{fontSize:10,fontWeight:700,padding:"3px 10px",borderRadius:999,cursor:"pointer",border:"none",color:isLive?"#22C55E":"#FBBF24",background:isLive?"rgba(34,197,94,0.1)":"rgba(251,191,36,0.1)",width:"100%",textAlign:"left"}}>
+              {isLive?"● Live data":"◌ Cached data"}
+            </button>
+          </div>
+
+          {/* Nav */}
+          <div style={{padding:"12px 10px",flex:1}}>
+            {[
+              {id:"overview",    label:"Overview",   Icon:Home},
+              {id:"investments", label:"Invest",     Icon:BarChart2},
+              {id:"spending",    label:"Spending",   Icon:CreditCard},
+              {id:"planning",    label:"Plan",       Icon:Target},
+            ].map(({id,label,Icon})=>(
+              <button key={id} onClick={()=>setTab(id)}
+                style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"10px 12px",borderRadius:11,border:"none",cursor:"pointer",marginBottom:4,
+                  background:tab===id?"linear-gradient(135deg,rgba(99,102,241,0.15),rgba(56,189,248,0.08))":"transparent",
+                  color:tab===id?"#818CF8":TH.muted,fontWeight:tab===id?700:500,fontSize:13,textAlign:"left",
+                  borderLeft:tab===id?"2px solid #6366F1":"2px solid transparent",transition:"all .15s"}}>
+                <Icon size={16}/>{label}
+              </button>
+            ))}
+          </div>
+
+          {/* Portfolio summary */}
+          <div style={{padding:"14px 14px 20px",borderTop:`1px solid ${TH.border}`}}>
+            <div style={{fontSize:9,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".07em",marginBottom:6}}>Net Worth</div>
+            <div style={{fontFamily:TH.mono,fontSize:20,fontWeight:900,color:TH.text,letterSpacing:"-1px",marginBottom:2}}>{fmt(NW)}</div>
+            <div style={{fontSize:10,color:TH.muted,marginBottom:10}}>{fmt(TOTAL)} − {fmt(DEBT)} debt</div>
+            <div style={{height:4,background:TH.surf,borderRadius:999,overflow:"hidden",marginBottom:8}}>
+              <div style={{height:"100%",width:`${Math.min(NW/3000000*100,100)}%`,background:"linear-gradient(90deg,#6366F1,#38BDF8)",borderRadius:999}}/>
+            </div>
+            <div style={{fontSize:9,color:TH.muted}}>฿3M retirement goal · {fd(NW/3000000*100,0)}%</div>
+            <div style={{marginTop:12,display:"flex",gap:6}}>
+              <button onClick={()=>fetchAll(true)} style={{flex:1,padding:"6px 0",borderRadius:8,border:`1px solid ${TH.border}`,background:"transparent",color:TH.muted,cursor:"pointer",fontSize:11,display:"flex",alignItems:"center",justifyContent:"center",gap:4}}>
+                <RefreshCw size={11} style={{animation:refreshing?"spin 1s linear infinite":"none"}}/> Refresh
+              </button>
+              <button onClick={()=>setAiOpen(true)} style={{flex:1,padding:"6px 0",borderRadius:8,border:"none",background:"linear-gradient(135deg,#6366F1,#4F46E5)",color:"white",cursor:"pointer",fontSize:11,fontWeight:700}}>✦ AI</button>
+            </div>
+          </div>
+        </div>
+
+        {/* ── MAIN CONTENT ── */}
+        <div style={{flex:1,overflowY:"auto",padding:"24px 20px 40px",minWidth:0}}>
+
+          {/* ── OVERVIEW TAB ── */}
+          {tab==="overview"&&(
+            <div>
+              {/* Top KPI row */}
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:12,marginBottom:20}}>
+                {[
+                  {label:"Portfolio",    val:fmt(TOTAL),              sub:`${sgn(WDAILY)}${fd(WDAILY)}% today`,  c:"#818CF8", bg:"rgba(129,140,248,0.08)"},
+                  {label:"Net Worth",    val:fmt(NW),                 sub:"Portfolio minus debt",                 c:TH.green,  bg:"rgba(74,222,128,0.08)"},
+                  {label:"Total Gain",   val:`${sgn(GL)}${fmt(Math.abs(GL))}`, sub:`${sgn(gainPct)}${fd(gainPct,1)}% return`, c:clr(GL), bg:`${clr(GL)}12`},
+                  {label:"Total Debt",   val:fmt(DEBT),               sub:"2 mortgages",                          c:TH.red,    bg:"rgba(248,113,113,0.08)"},
+                ].map((k,i)=>(
+                  <div key={i} style={{...dcStyle,background:k.bg,border:`1px solid ${k.c}20`}}>
+                    <div style={{fontSize:10,fontWeight:600,color:TH.muted,marginBottom:6,textTransform:"uppercase",letterSpacing:".06em"}}>{k.label}</div>
+                    <div style={{fontFamily:TH.mono,fontSize:20,fontWeight:800,color:TH.text,marginBottom:3,letterSpacing:"-.5px"}}>{k.val}</div>
+                    <div style={{fontSize:10,color:k.c,fontWeight:600}}>{k.sub}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Main grid — 3 columns */}
+              <div style={{display:"grid",gridTemplateColumns:"1.2fr 1fr 0.9fr",gap:16,alignItems:"start"}}>
+
+                {/* Column 1 — Net Worth + EF + Movers */}
+                <div style={{display:"flex",flexDirection:"column",gap:14}}>
+
+                  {/* Net worth hero */}
+                  <div style={{borderRadius:18,overflow:"hidden",background:"linear-gradient(145deg,#0D1035,#080C20,#060912)",border:"1px solid rgba(99,102,241,0.25)",padding:"18px 20px"}}>
+                    <div style={{fontSize:9,fontWeight:700,color:"#818CF8",textTransform:"uppercase",letterSpacing:".1em",marginBottom:8}}>Asset Accumulation · Age 44 → 60</div>
+                    <div style={{fontFamily:TH.mono,fontSize:32,fontWeight:900,color:"white",letterSpacing:"-1.5px",marginBottom:6}}>{fmt(NW)}</div>
+                    <div style={{fontSize:10,color:"rgba(255,255,255,0.5)",marginBottom:14}}>Portfolio {fmt(TOTAL)} − Debt {fmt(DEBT)}</div>
+                    {/* Split bar */}
+                    <div style={{display:"flex",height:5,borderRadius:999,overflow:"hidden",gap:1,marginBottom:10}}>
+                      <div style={{flex:PERSONAL,background:"linear-gradient(90deg,#6366F1,#818CF8)",borderRadius:"999px 0 0 999px"}}/>
+                      <div style={{flex:RETIRE,background:"linear-gradient(90deg,#38BDF8,#7DD3FC)"}}/>
+                      <div style={{flex:DEBT,background:"linear-gradient(90deg,#F87171,#FCA5A5)",borderRadius:"0 999px 999px 0"}}/>
+                    </div>
+                    <div style={{display:"flex",justifyContent:"space-between"}}>
+                      {[{l:"Personal",v:PERSONAL,c:"#818CF8"},{l:"Retirement",v:RETIRE,c:"#38BDF8"},{l:"Debt",v:DEBT,c:"#F87171"}].map((s,i)=>(
+                        <div key={i} style={{textAlign:i===2?"right":i===1?"center":"left"}}>
+                          <div style={{fontSize:8,color:"rgba(255,255,255,0.4)",marginBottom:2}}>{s.l}</div>
+                          <div style={{fontFamily:TH.mono,fontSize:11,fontWeight:700,color:"white"}}>{fmt(s.v)}</div>
+                        </div>
+                      ))}
+                    </div>
+                    {/* Invested strip */}
+                    <div style={{marginTop:12,padding:"8px 10px",background:"rgba(74,222,128,0.08)",borderRadius:10,border:"1px solid rgba(74,222,128,0.15)",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                      <div><div style={{fontSize:8,color:"rgba(255,255,255,0.4)"}}>INVESTED</div><div style={{fontFamily:TH.mono,fontSize:11,fontWeight:700,color:"white"}}>{fmt(totalCost)}</div></div>
+                      <div style={{textAlign:"center"}}><div style={{fontSize:8,color:"rgba(255,255,255,0.4)"}}>VALUE</div><div style={{fontFamily:TH.mono,fontSize:11,fontWeight:700,color:"white"}}>{fmt(TOTAL)}</div></div>
+                      <div style={{textAlign:"right"}}><div style={{fontSize:8,color:"rgba(255,255,255,0.4)"}}>GAIN</div><div style={{fontFamily:TH.mono,fontSize:12,fontWeight:800,color:TH.green}}>{sgn(GL)}{fmt(Math.abs(GL))}</div></div>
+                    </div>
+                  </div>
+
+                  {/* Emergency Fund */}
+                  <div style={{...dcStyle,background:"rgba(251,191,36,0.05)",border:"1px solid rgba(251,191,36,0.2)"}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
+                      <div>
+                        <div style={{fontSize:8,fontWeight:700,color:TH.gold,background:"rgba(251,191,36,0.15)",padding:"2px 8px",borderRadius:999,display:"inline-block",marginBottom:6}}>⚡ PHASE 1 OF 2</div>
+                        <div style={{fontSize:13,fontWeight:700,color:TH.text}}>Emergency Fund</div>
+                        <div style={{fontSize:10,color:TH.muted,marginTop:2}}>฿8,000/mo · SCB savings</div>
+                      </div>
+                      <div style={{textAlign:"right"}}>
+                        <div style={{fontFamily:TH.mono,fontSize:20,fontWeight:900,color:TH.gold}}>{(EF_BAL/35750).toFixed(1)}<span style={{fontSize:11}}> mo</span></div>
+                        <div style={{fontSize:9,color:TH.muted}}>{fmt(EF_BAL)} of {fmt(EF_TARGET)} · {EF_PCT.toFixed(0)}%</div>
+                      </div>
+                    </div>
+                    <div style={{display:"flex",gap:3,marginBottom:6}}>
+                      {[0,1,2,3].map(seg=>{
+                        const segFill=Math.max(0,Math.min(1,(EF_BAL-seg*EF_TARGET/4)/(EF_TARGET/4)));
+                        return <div key={seg} style={{flex:1,height:8,background:"rgba(251,191,36,0.1)",borderRadius:6,overflow:"hidden"}}><div style={{height:"100%",width:`${segFill*100}%`,background:"linear-gradient(90deg,#FBBF24,#F59E0B)",borderRadius:6}}/></div>;
+                      })}
+                    </div>
+                    <div style={{fontSize:9,color:TH.muted}}>฿8,000/mo · done in ~{EF_MO_LEFT} months</div>
+                  </div>
+
+                  {/* Today's movers */}
+                  <div style={dcStyle}>
+                    <div style={{fontSize:12,fontWeight:700,color:TH.text,marginBottom:12}}>Last Update</div>
+                    {[...holdings].sort((a,b)=>Math.abs(b.dailyPct)-Math.abs(a.dailyPct)).slice(0,5).map((h,i,arr)=>(
+                      <div key={i} className="dhrow" onClick={()=>setSelFund(h)} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 8px",borderBottom:i<arr.length-1?`1px solid ${TH.border}`:"none"}}>
+                        <div style={{width:28,height:28,borderRadius:8,background:`${CLS_COLOR[h.cls]||TH.accent}15`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,flexShrink:0}}>
+                          {h.cls==="Gold"?"🥇":h.cls==="US Equity"?"🇺🇸":h.cls==="Thai Equity"?"🇹🇭":h.cls==="Fixed Income"?"🏦":h.cls==="Balanced"?"⚖️":"🌍"}
+                        </div>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{fontSize:11,fontWeight:700,color:TH.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{h.code}</div>
+                          <div style={{fontSize:9,color:TH.muted}}>{h.cls}</div>
+                        </div>
+                        <div style={{textAlign:"right"}}>
+                          <div style={{fontSize:12,fontWeight:800,color:clr(h.dailyPct),fontFamily:TH.mono}}>{sgn(h.dailyPct)}{fd(h.dailyPct)}%</div>
+                          <div style={{fontSize:9,color:TH.muted}}>{fmt(h.value)}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Column 2 — Spending + DCA */}
+                <div style={{display:"flex",flexDirection:"column",gap:14}}>
+
+                  {/* Spending summary */}
+                  <div style={dcStyle}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+                      <div style={{fontSize:12,fontWeight:700,color:TH.text}}>{CM.m} Spending</div>
+                      <div style={{display:"flex",gap:6}}>
+                        {spendingMonths.map((sm,i)=>(
+                          <button key={i} onClick={()=>setSelMonth(i)} style={{padding:"3px 10px",borderRadius:999,fontSize:10,fontWeight:600,cursor:"pointer",border:`1px solid ${selMonth===i?TH.accent:TH.border}`,background:selMonth===i?TH.accent:"transparent",color:selMonth===i?"white":TH.inactive}}>{sm.m.split(" ")[0]}</button>
+                        ))}
+                      </div>
+                    </div>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:12}}>
+                      {[
+                        {l:"Spent",  v:CM.spent,             c:CM.spent>(CM.budget||70400)?TH.red:TH.green},
+                        {l:"Budget", v:CM.budget||70400,     c:TH.accent2},
+                        {l:"Saved",  v:INCOME-(CM.spent||0), c:INCOME-(CM.spent||0)>=0?TH.green:TH.red},
+                      ].map((s,i)=>(
+                        <div key={i} style={{textAlign:"center",padding:"10px 8px",background:TH.surf,borderRadius:10,border:`1px solid ${TH.border}`}}>
+                          <div style={{fontSize:9,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em",marginBottom:4}}>{s.l}</div>
+                          <div style={{fontSize:14,fontWeight:800,color:s.c,fontFamily:TH.mono}}>{s.v<0?"-":""}{fmt(Math.abs(s.v))}</div>
+                        </div>
+                      ))}
+                    </div>
+                    {/* Budget bar */}
+                    <div style={{height:6,background:darkMode?"rgba(255,255,255,0.07)":"rgba(0,0,0,0.07)",borderRadius:999,overflow:"hidden",marginBottom:8}}>
+                      <div style={{height:"100%",width:`${Math.min(CM.spent/(CM.budget||70400)*100,100)}%`,background:CM.spent>(CM.budget||70400)?"linear-gradient(90deg,#F87171,#DC2626)":"linear-gradient(90deg,#6366F1,#38BDF8)",borderRadius:999}}/>
+                    </div>
+                    {/* Top categories */}
+                    {CAT_DATA_D.slice(0,5).map((c,i)=>{
+                      const pct=CM.spent>0?(c.v/CM.spent*100):0;
+                      return(
+                        <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:7}}>
+                          <div style={{display:"flex",alignItems:"center",gap:7}}>
+                            <div style={{width:6,height:6,borderRadius:"50%",background:CAT_COLOR[c.name]||TH.accent}}/>
+                            <span style={{fontSize:10,color:TH.text2,fontWeight:500}}>{c.name}</span>
+                          </div>
+                          <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                            <div style={{width:60,height:3,background:darkMode?"rgba(255,255,255,0.06)":"rgba(0,0,0,0.06)",borderRadius:999,overflow:"hidden"}}>
+                              <div style={{height:"100%",width:`${Math.min(pct,100)}%`,background:CAT_COLOR[c.name]||TH.accent,borderRadius:999}}/>
+                            </div>
+                            <span style={{fontSize:10,fontWeight:700,color:TH.text,fontFamily:TH.mono,minWidth:55,textAlign:"right"}}>{fmt(c.v)}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* DCA + Savings Rate */}
+                  <div style={dcStyle}>
+                    <div style={{fontSize:12,fontWeight:700,color:TH.text,marginBottom:12}}>This Month</div>
+                    {[
+                      {ico:"📈",label:`DCA → ${DCA_FUND}`,     val:"฿10,000", c:"#818CF8", note:"Alternating monthly"},
+                      {ico:"🛡️",label:"Emergency Fund",         val:"฿8,000",  c:TH.gold,   note:"SCB auto-debit"},
+                      {ico:"✈️",label:"Japan Fund",             val:"฿15,000", c:TH.accent2,note:"KTB account"},
+                    ].map((r,i)=>(
+                      <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 0",borderBottom:i<2?`1px solid ${TH.border}`:"none"}}>
+                        <span style={{fontSize:16,flexShrink:0}}>{r.ico}</span>
+                        <div style={{flex:1}}>
+                          <div style={{fontSize:11,fontWeight:700,color:TH.text}}>{r.label}</div>
+                          <div style={{fontSize:9,color:TH.muted}}>{r.note}</div>
+                        </div>
+                        <div style={{fontFamily:TH.mono,fontSize:12,fontWeight:700,color:r.c}}>{r.val}</div>
+                      </div>
+                    ))}
+                    {/* Savings rate */}
+                    <div style={{marginTop:12,padding:"10px 12px",background:SAVINGS_RATE>=35?"rgba(74,222,128,0.07)":"rgba(248,113,113,0.07)",borderRadius:10,border:`1px solid ${SAVINGS_RATE>=35?"rgba(74,222,128,0.15)":"rgba(248,113,113,0.15)"}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                      <div><div style={{fontSize:10,fontWeight:700,color:TH.text}}>Savings Rate</div><div style={{fontSize:9,color:TH.muted}}>{CM.m}</div></div>
+                      <div style={{fontFamily:TH.mono,fontSize:22,fontWeight:900,color:SAVINGS_RATE>=35?TH.green:TH.red}}>{SAVINGS_RATE}%</div>
+                    </div>
+                  </div>
+
+                  {/* Goals */}
+                  <div style={dcStyle}>
+                    <div style={{fontSize:12,fontWeight:700,color:TH.text,marginBottom:12}}>Goals</div>
+                    {[
+                      {label:"Emergency Fund", pct:EF_PCT,                                    color:TH.gold,   note:`${fmt(EF_BAL)} / ฿143K`},
+                      {label:"Retirement",     pct:Math.min(100,RETIRE/3000000*100),          color:TH.accent, note:`${fmt(RETIRE)} / ฿3M`},
+                      {label:"Japan Fund",     pct:Math.min(100,(cashFlow.travelFund||0)/120000*100), color:TH.accent2, note:`${fmt(cashFlow.travelFund||0)} / ฿120K`},
+                    ].map((g,i)=>(
+                      <div key={i} style={{marginBottom:i<2?12:0}}>
+                        <div style={{display:"flex",justifyContent:"space-between",fontSize:11,marginBottom:3}}>
+                          <span style={{fontWeight:600,color:TH.text2}}>{g.label}</span>
+                          <span style={{fontWeight:700,color:g.color,fontFamily:TH.mono}}>{g.pct.toFixed(0)}%</span>
+                        </div>
+                        <div style={{fontSize:9,color:TH.muted,marginBottom:5}}>{g.note}</div>
+                        <div style={{height:5,background:`${g.color}18`,borderRadius:999,overflow:"hidden"}}>
+                          <div style={{height:"100%",width:`${g.pct}%`,background:g.color,borderRadius:999}}/>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Column 3 — Allocation donut + Debt + PVD */}
+                <div style={{display:"flex",flexDirection:"column",gap:14}}>
+
+                  {/* Allocation donut */}
+                  <div style={dcStyle}>
+                    <div style={{fontSize:12,fontWeight:700,color:TH.text,marginBottom:12}}>Asset Allocation</div>
+                    <div style={{display:"flex",justifyContent:"center",position:"relative",marginBottom:10}}>
+                      <PieChart width={150} height={150}>
+                        <Pie data={ALLOC} cx={70} cy={70} innerRadius={45} outerRadius={65} paddingAngle={2} dataKey="val" strokeWidth={0}
+                          isAnimationActive={true} animationDuration={600}
+                          onClick={d=>setSelAlloc(selAlloc===d.cls?null:d.cls)}>
+                          {ALLOC.map((a,i)=><Cell key={i} fill={a.color} opacity={selAlloc&&selAlloc!==a.cls?0.3:1} style={{cursor:"pointer"}}/>)}
+                        </Pie>
+                      </PieChart>
+                      <div style={{position:"absolute",top:"50%",left:"50%",transform:"translate(-50%,-50%)",textAlign:"center",pointerEvents:"none"}}>
+                        {selA?<><div style={{fontFamily:TH.mono,fontSize:10,fontWeight:800,color:selA.color}}>{selA.pct}%</div><div style={{fontSize:7,color:TH.muted}}>{selA.cls.split(" ")[0]}</div></>:<><div style={{fontFamily:TH.mono,fontSize:10,fontWeight:800,color:TH.text}}>{fmt(TOTAL)}</div><div style={{fontSize:7,color:TH.muted}}>total</div></>}
+                      </div>
+                    </div>
+                    {ALLOC.map((a,i)=>(
+                      <div key={i} onClick={()=>setSelAlloc(selAlloc===a.cls?null:a.cls)}
+                        style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"4px 0",cursor:"pointer",opacity:selAlloc&&selAlloc!==a.cls?0.35:1,borderBottom:i<ALLOC.length-1?`1px solid ${TH.border}`:"none"}}>
+                        <div style={{display:"flex",alignItems:"center",gap:7}}>
+                          <div style={{width:6,height:6,borderRadius:"50%",background:a.color}}/>
+                          <span style={{fontSize:10,color:TH.text2}}>{a.cls}</span>
+                        </div>
+                        <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                          <span style={{fontSize:9,color:TH.muted}}>{fmt(a.val)}</span>
+                          <span style={{fontSize:10,fontWeight:700,color:selAlloc===a.cls?a.color:TH.text,fontFamily:TH.mono}}>{a.pct}%</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Debt */}
+                  <div style={dcStyle}>
+                    <div style={{fontSize:12,fontWeight:700,color:TH.text,marginBottom:12}}>Debt</div>
+                    {debts.map((d,i)=>(
+                      <div key={i} style={{marginBottom:i<debts.length-1?10:0,paddingBottom:i<debts.length-1?10:0,borderBottom:i<debts.length-1?`1px solid ${TH.border}`:"none"}}>
+                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                          <div>
+                            <div style={{fontSize:11,fontWeight:700,color:TH.text}}>{d.name}</div>
+                            <div style={{fontSize:9,color:TH.muted,marginTop:2}}>{d.rate}% · {d.years}yr left · {fmt(d.monthly)}/mo</div>
+                          </div>
+                          <div style={{fontFamily:TH.mono,fontSize:13,fontWeight:800,color:TH.red}}>{fmt(d.balance)}</div>
+                        </div>
+                        <div style={{marginTop:6,height:3,background:"rgba(248,113,113,0.15)",borderRadius:999,overflow:"hidden"}}>
+                          <div style={{height:"100%",width:`${Math.min(d.balance/800000*100,100)}%`,background:TH.red,borderRadius:999}}/>
+                        </div>
+                      </div>
+                    ))}
+                    <div style={{marginTop:10,display:"flex",justifyContent:"space-between",padding:"8px 10px",background:"rgba(248,113,113,0.07)",borderRadius:10}}>
+                      <span style={{fontSize:11,color:TH.red,fontWeight:600}}>Total Debt</span>
+                      <span style={{fontFamily:TH.mono,fontSize:12,fontWeight:800,color:TH.red}}>{fmt(DEBT)}</span>
+                    </div>
+                  </div>
+
+                  {/* Quick links */}
+                  <div style={dcStyle}>
+                    <div style={{fontSize:12,fontWeight:700,color:TH.text,marginBottom:10}}>Quick Links</div>
+                    {[
+                      {ico:"💰",label:"Log Transaction",  sub:"Spending sheet",   url:"https://docs.google.com/spreadsheets/d/1l_EJDb5x35uRJzf1FuQOFjq0pCacvLAp_lsP2uGaWFM/edit?gid=1278352958#gid=1278352958"},
+                      {ico:"📊",label:"Update Portfolio", sub:"Holdings & NAV",   url:"https://docs.google.com/spreadsheets/d/11rbwXYqXhJrXG7oWQS3pl5fHiXXWtNpsxgN7TbIc6UQ/edit?gid=0#gid=0"},
+                    ].map((r,i)=>(
+                      <button key={i} onClick={()=>window.open(r.url,"_blank")}
+                        style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"10px 12px",borderRadius:10,border:`1px solid ${TH.border}`,background:"transparent",cursor:"pointer",marginBottom:i===0?8:0,textAlign:"left"}}>
+                        <span style={{fontSize:18,flexShrink:0}}>{r.ico}</span>
+                        <div>
+                          <div style={{fontSize:11,fontWeight:700,color:TH.text}}>{r.label}</div>
+                          <div style={{fontSize:9,color:TH.muted}}>{r.sub}</div>
+                        </div>
+                        <ChevronRight size={13} color={TH.dim} style={{marginLeft:"auto"}}/>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── INVEST TAB (desktop) ── */}
+          {tab==="investments"&&(
+            <div style={{display:"grid",gridTemplateColumns:"1.4fr 1fr",gap:16,alignItems:"start"}}>
+              <div style={{display:"flex",flexDirection:"column",gap:14}}>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+                  {[{label:"Personal",val:PERSONAL,pct:+(PERSONAL/TOTAL*100).toFixed(1),c:TH.accent},{label:"Retirement (PVD)",val:RETIRE,pct:+(RETIRE/TOTAL*100).toFixed(1),c:TH.accent2}].map((s,i)=>(
+                    <div key={i} style={dcStyle}>
+                      <div style={{fontSize:9,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".07em",marginBottom:6}}>{s.label}</div>
+                      <div style={{fontSize:20,fontWeight:800,fontFamily:TH.mono,marginBottom:8}}>{fmt(s.val)}</div>
+                      <div style={{height:4,background:`${s.c}18`,borderRadius:999,overflow:"hidden",marginBottom:4}}><div style={{height:"100%",width:`${s.pct}%`,background:`linear-gradient(90deg,${s.c},${s.c}99)`,borderRadius:999}}/></div>
+                      <div style={{fontSize:9,color:TH.muted}}>{s.pct}% of portfolio</div>
+                    </div>
+                  ))}
+                </div>
+                <div style={dcStyle}>
+                  <div style={{fontSize:12,fontWeight:700,color:TH.text,marginBottom:12}}>Holdings</div>
+                  {holdings.map((h,i)=>(
+                    <div key={i} className="dhrow" onClick={()=>setSelFund(h)} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 8px",borderBottom:i<holdings.length-1?`1px solid ${TH.border}`:"none"}}>
+                      <div style={{width:7,height:7,borderRadius:"50%",background:CLS_COLOR[h.cls]||TH.accent,flexShrink:0}}/>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:12,fontWeight:700,color:TH.text}}>{h.code}</div>
+                        <div style={{fontSize:9,color:TH.muted}}>{h.cls} · {h.type}</div>
+                      </div>
+                      <div style={{textAlign:"right"}}>
+                        <div style={{fontSize:12,fontWeight:700,fontFamily:TH.mono}}>{fmt(h.value)}</div>
+                        <div style={{fontSize:9,fontFamily:TH.mono}}>
+                          <span style={{color:clr(h.totalPct)}}>{sgn(h.totalPct)}{fd(h.totalPct)}%</span>
+                          <span style={{color:TH.dim,margin:"0 4px"}}>·</span>
+                          <span style={{color:clr(h.dailyPct)}}>{sgn(h.dailyPct)}{fd(h.dailyPct)}%</span>
+                        </div>
+                      </div>
+                      <ChevronRight size={12} color={TH.dim}/>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div style={{display:"flex",flexDirection:"column",gap:14}}>
+                <div style={dcStyle}>
+                  <div style={{fontSize:12,fontWeight:700,color:TH.text,marginBottom:14}}>Allocation</div>
+                  <div style={{display:"flex",justifyContent:"center",position:"relative",marginBottom:12}}>
+                    <PieChart width={150} height={150}>
+                      <Pie data={ALLOC} cx={70} cy={70} innerRadius={45} outerRadius={65} paddingAngle={2} dataKey="val" strokeWidth={0}
+                        isAnimationActive={true} animationDuration={600}
+                        onClick={d=>setSelAlloc(selAlloc===d.cls?null:d.cls)}>
+                        {ALLOC.map((a,i)=><Cell key={i} fill={a.color} opacity={selAlloc&&selAlloc!==a.cls?0.3:1} style={{cursor:"pointer"}}/>)}
+                      </Pie>
+                    </PieChart>
+                    <div style={{position:"absolute",top:"50%",left:"50%",transform:"translate(-50%,-50%)",textAlign:"center",pointerEvents:"none"}}>
+                      {selA?<><div style={{fontFamily:TH.mono,fontSize:11,fontWeight:800,color:selA.color}}>{selA.pct}%</div><div style={{fontSize:8,color:TH.muted}}>{selA.cls.split(" ")[0]}</div></>:<><div style={{fontFamily:TH.mono,fontSize:11,fontWeight:800,color:TH.text}}>{fmt(TOTAL)}</div><div style={{fontSize:8,color:TH.muted}}>total</div></>}
+                    </div>
+                  </div>
+                  {ALLOC.map((a,i)=>(
+                    <div key={i} style={{display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:i<ALLOC.length-1?`1px solid ${TH.border}`:"none",cursor:"pointer",opacity:selAlloc&&selAlloc!==a.cls?0.35:1}} onClick={()=>setSelAlloc(selAlloc===a.cls?null:a.cls)}>
+                      <div style={{display:"flex",alignItems:"center",gap:6}}><div style={{width:6,height:6,borderRadius:"50%",background:a.color}}/><span style={{fontSize:10,color:TH.text2}}>{a.cls}</span></div>
+                      <span style={{fontSize:10,fontWeight:700,color:selAlloc===a.cls?a.color:TH.text,fontFamily:TH.mono}}>{a.pct}%</span>
+                    </div>
+                  ))}
+                </div>
+                <div style={dcStyle}>
+                  <div style={{fontSize:12,fontWeight:700,color:TH.text,marginBottom:10}}>Rebalancing</div>
+                  {REBAL.filter(r=>r.diff!==0).map((r,i,a)=>(
+                    <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:i<a.length-1?`1px solid ${TH.border}`:"none"}}>
+                      <div style={{display:"flex",alignItems:"center",gap:8}}>
+                        <span style={{fontSize:13}}>{Math.abs(r.diff)>=3?"⚠️":"💡"}</span>
+                        <div><div style={{fontSize:11,fontWeight:600,color:TH.text2}}>{r.cls}</div><div style={{fontSize:9,color:TH.muted}}>{r.diff>0?"Overweight":"Underweight"}</div></div>
+                      </div>
+                      <span style={{fontSize:11,fontWeight:800,color:Math.abs(r.diff)>=3?"#FBBF24":TH.muted,fontFamily:TH.mono}}>{sgn(r.diff)}{r.diff}%</span>
+                    </div>
+                  ))}
+                  {REBAL.every(r=>r.diff===0)&&<div style={{textAlign:"center",padding:12,color:TH.green,fontSize:11,fontWeight:600}}>✅ Balanced!</div>}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── SPENDING TAB (desktop) ── */}
+          {tab==="spending"&&(
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,alignItems:"start"}}>
+              <div style={{display:"flex",flexDirection:"column",gap:14}}>
+                <div style={dcStyle}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+                    <div style={{fontSize:12,fontWeight:700,color:TH.text}}>{CM.m}</div>
+                    <div style={{display:"flex",gap:6}}>
+                      {spendingMonths.map((sm,i)=>(
+                        <button key={i} onClick={()=>setSelMonth(i)} style={{padding:"3px 10px",borderRadius:999,fontSize:10,fontWeight:600,cursor:"pointer",border:`1px solid ${selMonth===i?TH.accent:TH.border}`,background:selMonth===i?TH.accent:"transparent",color:selMonth===i?"white":TH.inactive}}>{sm.m.split(" ")[0]}</button>
+                      ))}
+                    </div>
+                  </div>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:12}}>
+                    {[{l:"Spent",v:CM.spent,c:CM.spent>(CM.budget||70400)?TH.red:TH.green},{l:"Budget",v:CM.budget||70400,c:TH.accent2},{l:"Saved",v:INCOME-(CM.spent||0),c:INCOME-(CM.spent||0)>=0?TH.green:TH.red}].map((s,i)=>(
+                      <div key={i} style={{textAlign:"center",padding:"10px 8px",background:TH.surf,borderRadius:10,border:`1px solid ${TH.border}`}}>
+                        <div style={{fontSize:9,color:TH.muted,textTransform:"uppercase",marginBottom:4}}>{s.l}</div>
+                        <div style={{fontSize:15,fontWeight:800,color:s.c,fontFamily:TH.mono}}>{s.v<0?"-":""}{fmt(Math.abs(s.v))}</div>
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{height:6,background:darkMode?"rgba(255,255,255,0.07)":"rgba(0,0,0,0.07)",borderRadius:999,overflow:"hidden",marginBottom:12}}>
+                    <div style={{height:"100%",width:`${Math.min(CM.spent/(CM.budget||70400)*100,100)}%`,background:CM.spent>(CM.budget||70400)?"linear-gradient(90deg,#F87171,#DC2626)":"linear-gradient(90deg,#6366F1,#38BDF8)",borderRadius:999}}/>
+                  </div>
+                  {/* Donut + categories */}
+                  <div style={{display:"flex",alignItems:"flex-start",gap:16}}>
+                    <div style={{flexShrink:0,position:"relative"}}>
+                      <PieChart width={120} height={120}>
+                        <Pie data={CAT_DATA_D.slice(0,8)} cx={55} cy={55} innerRadius={35} outerRadius={52} paddingAngle={2} dataKey="v" strokeWidth={0}
+                          isAnimationActive={true} animationDuration={600} onClick={d=>setSelCat(selCat===d.name?null:d.name)}>
+                          {CAT_DATA_D.slice(0,8).map((c,i)=><Cell key={i} fill={CAT_COLOR[c.name]||TH.accent} opacity={selCat&&selCat!==c.name?0.35:1} style={{cursor:"pointer"}}/>)}
+                        </Pie>
+                      </PieChart>
+                      <div style={{position:"absolute",top:"50%",left:"50%",transform:"translate(-50%,-50%)",textAlign:"center",pointerEvents:"none",width:60}}>
+                        {selCat?<><div style={{fontFamily:TH.mono,fontSize:9,fontWeight:800,color:CAT_COLOR[selCat]||TH.accent}}>{fmt(CAT_DATA_D.find(c=>c.name===selCat)?.v||0)}</div><div style={{fontSize:7,color:TH.muted}}>{selCat}</div></>:<><div style={{fontFamily:TH.mono,fontSize:9,fontWeight:800,color:TH.text}}>{fmt(CM.spent)}</div><div style={{fontSize:7,color:TH.muted}}>spent</div></>}
+                      </div>
+                    </div>
+                    <div style={{flex:1}}>
+                      {CAT_DATA_D.slice(0,7).map((c,i)=>{
+                        const pct=CM.spent>0?(c.v/CM.spent*100):0;
+                        return(
+                          <div key={i} onClick={()=>setSelCat(selCat===c.name?null:c.name)} style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5,cursor:"pointer",opacity:selCat&&selCat!==c.name?0.4:1}}>
+                            <div style={{display:"flex",alignItems:"center",gap:5}}><div style={{width:5,height:5,borderRadius:"50%",background:CAT_COLOR[c.name]||TH.accent}}/><span style={{fontSize:9,color:TH.text2}}>{c.name}</span></div>
+                            <span style={{fontSize:9,fontWeight:700,color:TH.text,fontFamily:TH.mono}}>{pct.toFixed(0)}%</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+                {/* Transactions */}
+                <div style={dcStyle}>
+                  <div style={{fontSize:12,fontWeight:700,color:TH.text,marginBottom:12}}>Transactions <span style={{fontSize:10,color:TH.muted,fontWeight:400}}>· {TXNS.length} entries</span></div>
+                  <div style={{maxHeight:400,overflowY:"auto"}}>
+                    {spendGroups().map((g,gi)=>{
+                      const isSav=g.type==="savings",amtC=isSav?TH.green:g.type==="notable"?"#FBBF24":TH.text2;
+                      const CAT_ICON={Housing:"🏠",Food:"🍽️",Mom:"👩",Gas:"⛽","Japan Fund":"✈️",Retirement:"💰",Emergency:"🛡️",Cat:"🐱",Subscriptions:"📺",Phone:"📱",Internet:"🌐",Installment:"📋",Misc:"💳"};
+                      return(
+                        <div key={gi} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 6px",borderBottom:`1px solid ${TH.border}`}}>
+                          <div style={{width:28,height:28,borderRadius:8,background:`${CAT_COLOR[g.cat]||TH.accent}15`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,flexShrink:0}}>{CAT_ICON[g.cat]||"💳"}</div>
+                          <div style={{flex:1}}><div style={{fontSize:11,fontWeight:600,color:TH.text}}>{g.cat}</div><div style={{fontSize:9,color:TH.muted}}>{g.txns.length} transaction{g.txns.length>1?"s":""}</div></div>
+                          <div style={{fontFamily:TH.mono,fontSize:11,fontWeight:700,color:amtC}}>{isSav?"+":"-"}{fmt(g.total)}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+              <div style={{display:"flex",flexDirection:"column",gap:14}}>
+                {/* Summary strip */}
+                <div style={dcStyle}>
+                  <div style={{fontSize:12,fontWeight:700,color:TH.text,marginBottom:12}}>Summary</div>
+                  {(()=>{
+                    const sav=TXNS.filter(t=>SAVINGS_CATS.includes(t.cat)).reduce((s,t)=>s+t.amount,0);
+                    const fix=TXNS.filter(t=>FIXED_CATS.includes(t.cat)).reduce((s,t)=>s+t.amount,0);
+                    const disc=(CM.spent||0)-sav-fix;
+                    return(
+                      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
+                        {[{l:"Savings",v:sav,c:TH.green},{l:"Fixed",v:fix,c:TH.inactive},{l:"Lifestyle",v:disc,c:TH.accent2}].map((s,i)=>(
+                          <div key={i} style={{textAlign:"center",padding:"12px 8px",background:TH.surf,borderRadius:10}}>
+                            <div style={{fontSize:13,fontWeight:800,color:s.c,fontFamily:TH.mono}}>{fmt(s.v)}</div>
+                            <div style={{fontSize:9,color:TH.muted,marginTop:3}}>{s.l}</div>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
+                </div>
+                {/* Savings rate */}
+                <div style={{...dcStyle,background:SAVINGS_RATE>=35?"rgba(74,222,128,0.05)":"rgba(248,113,113,0.05)",border:`1px solid ${SAVINGS_RATE>=35?"rgba(74,222,128,0.15)":"rgba(248,113,113,0.15)"}`}}>
+                  <div style={{fontSize:9,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".07em",marginBottom:6}}>Monthly Savings Rate</div>
+                  <div style={{display:"flex",alignItems:"flex-end",justifyContent:"space-between",marginBottom:10}}>
+                    <div style={{fontFamily:TH.mono,fontSize:42,fontWeight:900,color:SAVINGS_RATE>=35?TH.green:TH.red,letterSpacing:"-2px",lineHeight:1}}>{SAVINGS_RATE}%</div>
+                    <div style={{textAlign:"right",paddingBottom:4}}><div style={{fontSize:11,fontWeight:700,color:SAVINGS_RATE>=35?TH.green:TH.red}}>{SAVINGS_RATE>=50?"Excellent 🏆":SAVINGS_RATE>=35?"On track ✅":SAVINGS_RATE>=20?"Needs attention ⚠️":"Below target 🔴"}</div><div style={{fontSize:9,color:TH.muted}}>Target: 35%+</div></div>
+                  </div>
+                  <div style={{height:5,background:darkMode?"rgba(255,255,255,0.07)":"rgba(0,0,0,0.07)",borderRadius:999,overflow:"hidden"}}>
+                    <div style={{height:"100%",width:`${Math.min(SAVINGS_RATE,100)}%`,background:SAVINGS_RATE>=35?TH.green:TH.red,borderRadius:999}}/>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── PLANNING TAB (desktop) ── */}
+          {tab==="planning"&&(
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:16,alignItems:"start"}}>
+              {/* Col 1 — Automation + Goals */}
+              <div style={{display:"flex",flexDirection:"column",gap:14}}>
+                <div style={dcStyle}>
+                  <div style={{fontSize:12,fontWeight:700,color:TH.text,marginBottom:12}}>Monthly Automation</div>
+                  {[
+                    {dot:TH.gold,    label:"Emergency Fund",     amt:"฿8,000",  tag:"PHASE 1"},
+                    {dot:"#818CF8",  label:`DCA → ${DCA_FUND}`, amt:"฿10,000", tag:"THIS MONTH"},
+                    {dot:TH.accent2, label:"Japan Travel Fund",  amt:"฿15,000", tag:"KTB"},
+                    {dot:"#94A3B8",  label:"Fixed Bills",        amt:"฿35,816", tag:"AUTO"},
+                    {dot:"#94A3B8",  label:"Spending Buffer",    amt:"฿5,000",  tag:"DAILY"},
+                  ].map((r,i)=>(
+                    <div key={i} style={{display:"flex",alignItems:"center",gap:9,marginBottom:i<4?8:0}}>
+                      <div style={{width:7,height:7,borderRadius:"50%",background:r.dot,flexShrink:0}}/>
+                      <div style={{flex:1,fontSize:11,color:TH.text2}}>{r.label}</div>
+                      <div style={{fontFamily:TH.mono,fontSize:11,fontWeight:700,color:r.dot}}>{r.amt}</div>
+                      <div style={{fontSize:8,fontWeight:700,color:r.dot,background:`${r.dot}18`,padding:"1px 6px",borderRadius:999}}>{r.tag}</div>
+                    </div>
+                  ))}
+                </div>
+                <div style={dcStyle}>
+                  <div style={{fontSize:12,fontWeight:700,color:TH.text,marginBottom:12}}>Goals</div>
+                  {[
+                    {label:"Emergency Fund",pct:EF_PCT,color:TH.gold,note:`${fmt(EF_BAL)} / ฿143K`},
+                    {label:"Retirement",pct:Math.min(100,RETIRE/3000000*100),color:TH.accent,note:`${fmt(RETIRE)} / ฿3M`},
+                    {label:"Japan Fund",pct:Math.min(100,(cashFlow.travelFund||0)/120000*100),color:TH.accent2,note:`${fmt(cashFlow.travelFund||0)} / ฿120K`},
+                  ].map((g,i)=>(
+                    <div key={i} style={{marginBottom:i<2?14:0}}>
+                      <div style={{display:"flex",justifyContent:"space-between",fontSize:11,marginBottom:3}}><span style={{fontWeight:600,color:TH.text2}}>{g.label}</span><span style={{fontWeight:700,color:g.color,fontFamily:TH.mono}}>{g.pct.toFixed(0)}%</span></div>
+                      <div style={{fontSize:9,color:TH.muted,marginBottom:5}}>{g.note}</div>
+                      <div style={{height:5,background:`${g.color}18`,borderRadius:999,overflow:"hidden"}}><div style={{height:"100%",width:`${g.pct}%`,background:g.color,borderRadius:999}}/></div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              {/* Col 2 — PVD */}
+              <div style={dcStyle}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
+                  <div><div style={{fontSize:12,fontWeight:700,color:TH.text}}>PVD — UOB</div><div style={{fontSize:9,color:TH.muted,marginTop:2}}>Reallocated Apr 23, 2026</div></div>
+                  <div style={{textAlign:"right"}}><div style={{fontFamily:TH.mono,fontSize:14,fontWeight:700,color:TH.text}}>{fmt(RETIRE)}</div><div style={{fontSize:8,color:TH.muted}}>balance</div></div>
+                </div>
+                <div style={{background:TH.surf,borderRadius:12,padding:"10px 12px",marginBottom:12}}>
+                  <div style={{fontSize:9,fontWeight:700,color:TH.muted,marginBottom:8,textTransform:"uppercase",letterSpacing:".06em"}}>Monthly DCA</div>
+                  {[{l:"Your 10% (→12% Jun)",v:"฿8,873",nv:"฿10,648",c:"#818CF8"},{l:"Employer 12%",v:"฿10,648",nv:null,c:TH.accent2}].map((r,i)=>(
+                    <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:i===0?6:0}}>
+                      <span style={{fontSize:10,color:TH.text2}}>{r.l}</span>
+                      <div style={{display:"flex",alignItems:"center",gap:5}}><span style={{fontFamily:TH.mono,fontSize:11,fontWeight:700,color:r.c}}>{r.v}</span>{r.nv&&<span style={{fontSize:9,color:TH.green}}>→{r.nv}</span>}</div>
+                    </div>
+                  ))}
+                  <div style={{borderTop:`1px solid ${TH.border}`,marginTop:8,paddingTop:7,display:"flex",justifyContent:"space-between"}}>
+                    <span style={{fontSize:10,fontWeight:700,color:TH.text}}>Total now</span>
+                    <span style={{fontFamily:TH.mono,fontSize:12,fontWeight:800,color:TH.green}}>฿19,521/mo</span>
+                  </div>
+                </div>
+                {[{cls:"Global Equity — UGD",pct:35,ret:"~8.0%",c:"#818CF8"},{cls:"Balanced — UGBF",pct:25,ret:"~5.5%",c:"#34D399"},{cls:"Fixed Income",pct:25,ret:"~1.5%",c:"#38BDF8"},{cls:"Gold — UOBSG",pct:10,ret:"~6.0%",c:"#FBBF24"},{cls:"Global Bond — UGIS",pct:5,ret:"~4.0%",c:"#94A3B8"}].map((a,i)=>(
+                  <div key={i} style={{display:"flex",alignItems:"center",gap:8,marginBottom:i<4?7:0}}>
+                    <div style={{width:6,height:6,borderRadius:"50%",background:a.c,flexShrink:0}}/>
+                    <div style={{fontSize:10,color:TH.text2,flex:1}}>{a.cls}</div>
+                    <div style={{flex:1.2,height:4,background:darkMode?"rgba(255,255,255,0.06)":"rgba(0,0,0,0.06)",borderRadius:999,overflow:"hidden"}}><div style={{height:"100%",width:`${a.pct*2}%`,background:a.c,borderRadius:999}}/></div>
+                    <div style={{fontFamily:TH.mono,fontSize:10,fontWeight:700,color:TH.text,minWidth:24,textAlign:"right"}}>{a.pct}%</div>
+                    <div style={{fontSize:8,color:TH.muted,minWidth:36,textAlign:"right"}}>{a.ret}</div>
+                  </div>
+                ))}
+                <div style={{marginTop:10,padding:"7px 10px",background:"rgba(99,102,241,0.06)",borderRadius:10,border:"1px solid rgba(99,102,241,0.15)",display:"flex",justifyContent:"space-between"}}>
+                  <span style={{fontSize:9,color:TH.muted}}>Blended return</span>
+                  <span style={{fontSize:11,fontWeight:700,color:"#818CF8",fontFamily:TH.mono}}>~5.35% p.a.</span>
+                </div>
+              </div>
+              {/* Col 3 — Debt + Health + Rebalance */}
+              <div style={{display:"flex",flexDirection:"column",gap:14}}>
+                <div style={dcStyle}>
+                  <div style={{fontSize:12,fontWeight:700,color:TH.text,marginBottom:12}}>Debt Breakdown</div>
+                  {debts.map((d,i)=>(
+                    <div key={i} style={{marginBottom:i<debts.length-1?12:0,paddingBottom:i<debts.length-1?12:0,borderBottom:i<debts.length-1?`1px solid ${TH.border}`:"none"}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:4}}>
+                        <div><div style={{fontSize:11,fontWeight:700,color:TH.text}}>{d.name}</div><div style={{fontSize:9,color:TH.muted,marginTop:1}}>{d.rate}% · {d.years}yr · {fmt(d.monthly)}/mo</div></div>
+                        <div style={{fontFamily:TH.mono,fontSize:13,fontWeight:800,color:TH.red}}>{fmt(d.balance)}</div>
+                      </div>
+                      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
+                        {[{l:"Interest",v:fmt(d.interest)},{l:"Principal",v:fmt(d.principal)}].map((s,j)=>(
+                          <div key={j} style={{padding:"6px 8px",background:TH.surf,borderRadius:8,border:`1px solid ${TH.border}`}}>
+                            <div style={{fontSize:8,color:TH.muted,marginBottom:2}}>{s.l}</div>
+                            <div style={{fontSize:11,fontWeight:700,color:TH.text2,fontFamily:TH.mono}}>{s.v}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                  <div style={{marginTop:10,padding:"8px 10px",background:"rgba(248,113,113,0.07)",borderRadius:10,display:"flex",justifyContent:"space-between"}}>
+                    <span style={{fontSize:11,color:TH.red,fontWeight:600}}>Total</span>
+                    <span style={{fontFamily:TH.mono,fontSize:12,fontWeight:800,color:TH.red}}>{fmt(DEBT)}</span>
+                  </div>
+                </div>
+                <div style={{...dcStyle,background:"linear-gradient(135deg,rgba(99,102,241,0.1),rgba(56,189,248,0.06))"}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                    <div><div style={{fontSize:9,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".07em",marginBottom:5}}>Financial Health</div><div style={{fontSize:40,fontWeight:900,letterSpacing:"-2px",background:"linear-gradient(135deg,#818CF8,#38BDF8)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",lineHeight:1}}>78</div><div style={{fontSize:10,color:TH.muted,marginTop:3}}>Good · 2 items need attention</div></div>
+                    <div style={{fontSize:36}}>💎</div>
+                  </div>
+                  <div style={{height:4,background:darkMode?"rgba(255,255,255,0.07)":"rgba(0,0,0,0.07)",borderRadius:999,marginTop:12,overflow:"hidden"}}><div style={{height:"100%",width:"78%",background:"linear-gradient(90deg,#6366F1,#38BDF8)",borderRadius:999}}/></div>
+                </div>
+                <div style={dcStyle}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+                    <div style={{fontSize:12,fontWeight:700,color:TH.text}}>Rebalancing</div>
+                    <button onClick={()=>setAiOpen(true)} style={{fontSize:9,fontWeight:700,color:TH.accent,background:`${TH.accent}12`,border:`1px solid rgba(99,102,241,0.2)`,borderRadius:7,padding:"3px 9px",cursor:"pointer"}}>Ask AI ✦</button>
+                  </div>
+                  {REBAL.filter(r=>r.diff!==0).map((r,i,a)=>(
+                    <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 0",borderBottom:i<a.length-1?`1px solid ${TH.border}`:"none"}}>
+                      <div style={{display:"flex",alignItems:"center",gap:7}}><span style={{fontSize:12}}>{Math.abs(r.diff)>=3?"⚠️":"💡"}</span><div><div style={{fontSize:11,fontWeight:600,color:TH.text2}}>{r.cls}</div><div style={{fontSize:9,color:TH.muted}}>{r.diff>0?"Over":"Under"}</div></div></div>
+                      <span style={{fontSize:11,fontWeight:800,color:Math.abs(r.diff)>=3?"#FBBF24":TH.muted,fontFamily:TH.mono}}>{sgn(r.diff)}{r.diff}%</span>
+                    </div>
+                  ))}
+                  {REBAL.every(r=>r.diff===0)&&<div style={{textAlign:"center",padding:12,color:TH.green,fontSize:11,fontWeight:600}}>✅ Balanced!</div>}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Overlays work on desktop too */}
+        <ProfilePanel open={profOpen} onClose={()=>setProfOpen(false)} photo={profilePhoto} onPhotoChange={p=>{setProfilePhoto(p);try{localStorage.setItem('gf_photo',p);}catch{}}} name="Gift" darkMode={darkMode} setDarkMode={setDarkMode}/>
+        <FundPanel fund={selFund} onClose={()=>setSelFund(null)}/>
+        <AIPanel open={aiOpen} onClose={()=>setAiOpen(false)} holdings={holdings} debts={debts} spendingMonths={spendingMonths}/>
+        <DebugPanel open={debugOpen} onClose={()=>setDebugOpen(false)} portRaw={portRaw} spendRaw={spendRaw} portErr={portErr} spendErr={spendErr}/>
+      </div>
+    );
+  }
+
 
   return(
     <div style={{fontFamily:"'Inter','DM Sans',sans-serif",background:darkMode?"#060912":"#F8FAFC",color:TH.text,minHeight:"100vh",maxWidth:480,margin:"0 auto",position:"relative",overflow:"hidden",WebkitFontSmoothing:"antialiased"}}>
