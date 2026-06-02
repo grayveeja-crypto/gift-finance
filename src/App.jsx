@@ -517,6 +517,10 @@ export default function App(){
   const [selFund,setSelFund]=useState(null);
   const [selCat,setSelCat]=useState(null);
   const [selAlloc,setSelAlloc]=useState(null);
+  const [wealthData,setWealthData]=useState(null);
+  const [wealthLoading,setWealthLoading]=useState(false);
+  const [wealthError,setWealthError]=useState(null);
+  const [wealthLastRun,setWealthLastRun]=useState(null);
   const [quickMenu,setQuickMenu]=useState(false); const [aiOpen,setAiOpen]=useState(false);
   const [debugOpen,setDebugOpen]=useState(false); const [profOpen,setProfOpen]=useState(false);
   const [profilePhoto,setProfilePhoto]=useState(()=>{
@@ -1573,7 +1577,7 @@ Respond ONLY with valid JSON, no markdown, no explanation outside JSON:
             </div>
           )}
 
-        {/* Overlays work on desktop too */}}
+        {/* Overlays work on desktop too */}
         <ProfilePanel open={profOpen} onClose={()=>setProfOpen(false)} photo={profilePhoto} onPhotoChange={p=>{setProfilePhoto(p);try{localStorage.setItem('gf_photo',p);}catch{}}} name="Gift" darkMode={darkMode} setDarkMode={setDarkMode}/>
         <FundPanel fund={selFund} onClose={()=>setSelFund(null)}/>
         <AIPanel open={aiOpen} onClose={()=>setAiOpen(false)} holdings={holdings} debts={debts} spendingMonths={spendingMonths}/>
