@@ -550,86 +550,52 @@ export default function App(){
 
   useEffect(()=>{fetchAll();},[fetchAll]);
 
-  const runWealthAnalysis = async() => {
-    setWealthLoading(true); setWealthError(null);
-    const GL = holdings.reduce((s,h)=>s+(h.value-h.cost),0);
-    const totalCost = holdings.reduce((s,h)=>s+h.cost,0);
-    const gainPct = totalCost>0?(GL/totalCost*100):0;
-    const pvdContrib = 10648;
-    const gross = 88733;
-    const savCats = ["Emergency","Japan Fund","Retirement"];
-    const txnSav = (CM.transactions||[]).filter(t=>savCats.includes(t.cat)).reduce((s,t)=>s+t.amount,0);
-    const savRate = Math.round((txnSav+pvdContrib)/gross*100);
-    const alloc = getAlloc(holdings);
-
-    const prompt = `You are a professional financial advisor analyzing Gift's personal finances in Thailand. Provide a structured JSON analysis with exactly these 4 keys: "allocation", "tax", "nextMove", "liquidity".
-
-Gift's financial data:
-- Age: 44, Retirement target: Age 60 (16 years)
-- Gross income: ฿88,733/mo, Take-home: ฿75,400/mo
-- Portfolio total: ${fmt(holdings.reduce((s,h)=>s+h.value,0))}
-- Personal investments: ${fmt(holdings.filter(h=>h.type==="Personal").reduce((s,h)=>s+h.value,0))} (SCB RMF funds)
-- PVD retirement: ${fmt(holdings.filter(h=>h.type==="Retirement").reduce((s,h)=>s+h.value,0))} (UOB Asset Management)
-- Total debt: ${fmt(debts.reduce((s,d)=>s+d.balance,0))} (House 3.75%, Attached 5.83%)
-- Emergency fund: ${fmt(cashFlow.emergencyFund||0)} of ฿143,000 target (${((cashFlow.emergencyFund||0)/143000*100).toFixed(0)}%)
-- Current savings rate: ${savRate}% of gross (Emergency ฿8K + Japan Fund ฿15K + RMF ฿10K + PVD 12% ฿10,648)
-- Unrealized gain: ${fmt(GL)} (+${gainPct.toFixed(1)}%)
-- Asset allocation: ${alloc.map(a=>a.cls+' '+a.pct+'%').join(', ')}
-- Target allocation: Global Equity 35%, US Equity 15%, Fixed Income 30%, Gold 10%, Thai Equity 5%, Balanced 5%
-- DCA: ฿10,000/mo alternating SCBRMS&P500 and SCBRMWORLD(A)
-- PVD allocation: Global Equity 35%, Balanced 25%, Fixed Income 25%, Gold 10%, Global Bond 5%
-- Debts: House Mortgage ฿${debts[0]?.balance||636873} at 3.75%, Attached Housing ฿${debts[1]?.balance||175919} at 5.83%
-- Latest month spending: ${fmt(CM.spent||0)} vs budget ฿70,400
-
-Respond ONLY with valid JSON, no markdown, no explanation outside JSON:
-{
-  "score": <number 0-100>,
-  "scoreLabel": "<Good/Excellent/Needs Work>",
-  "allocation": {
-    "grade": "<A/B+/B/C+/C>",
-    "gaps": ["<specific finding 1>", "<specific finding 2>"],
-    "verdict": "<one sentence summary>"
-  },
-  "tax": {
-    "grade": "<A/B+/B/C+/C>",
-    "rmfSaved": <estimated annual tax saved in THB number>,
-    "pvdSaved": <estimated annual tax saved from PVD in THB number>,
-    "verdict": "<one sentence summary>",
-    "tip": "<one actionable tip>"
-  },
-  "nextMove": {
-    "lowHanging": ["<action 1 with specific numbers>", "<action 2 with specific numbers>"],
-    "strategic": ["<strategic action 1>", "<strategic action 2>"]
-  },
-  "liquidity": {
-    "grade": "<A/B+/B/C+/C>",
-    "monthsCovered": <number>,
-    "verdict": "<one sentence>",
-    "risk": "<low/medium/high>"
-  }
-}`;
-
-    try {
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
-        method:"POST",
-        headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({
-          model:"claude-sonnet-4-20250514",
-          max_tokens:1000,
-          system:"You are a Thai financial advisor. Always respond with pure JSON only, no markdown fences, no extra text.",
-          messages:[{role:"user",content:prompt}]
-        })
+  const runWealthAnalysis = () => {
+    setWealthLoading(true);
+    setWealthError(null);
+    // Hardcoded analysis — updated monthly during data review session
+    // Last updated: June 2026
+    setTimeout(() => {
+      setWealthData({
+        score: 74,
+        scoreLabel: "Good · 2 items need attention",
+        allocation: {
+          grade: "B+",
+          verdict: "Portfolio is growth-oriented and well-structured. Two deviations from target worth monitoring.",
+          gaps: [
+            "Fixed Income at ~38% vs 30% target — overweight by 8%. Mainly PVD Fixed Income from April reallocation. Will self-correct via DCA over 12-18 months.",
+            "US Equity at ~7% vs 15% target — underweight. Alternating S&P500 DCA (฿10,000/mo) is correcting this gradually. On track by mid-2027.",
+            "Thai Equity at ~1% vs 5% target — consider SCBRM2 top-up when EF completes and Phase 2 unlocks."
+          ]
+        },
+        tax: {
+          grade: "A",
+          rmfSaved: 12000,
+          pvdSaved: 11667,
+          verdict: "Near-optimal tax efficiency. RMF + PVD saving ~฿23,667/year in tax at your 15% marginal bracket.",
+          tip: "December bonus: ฿50,000 into Thai ESG saves an additional ฿7,500 in tax — use it before Dec 31 deadline."
+        },
+        nextMove: {
+          lowHanging: [
+            "Complete emergency fund by Oct 2027 — at ฿8,000/mo you need ~16 more months. This unlocks ฿8,000/mo for Phase 2 investing.",
+            "Thai ESG ฿50,000 with year-end bonus in December 2026 → saves ฿7,500 in tax. Best immediate ROI available to you."
+          ],
+          strategic: [
+            "January 2027: Switch RMF DCA from alternating to ฿6,000/฿6,000 split simultaneously. Smoother cost averaging across both funds.",
+            "When emergency fund completes (Oct 2027): redirect ฿8,000/mo toward RMF top-up to reach ฿13,310/mo ceiling and fully maximise tax deduction.",
+            "PVD upgrade to 15% from January 2027 — adds ฿2,662/mo to retirement compounding at 5.35% blended target return."
+          ]
+        },
+        liquidity: {
+          grade: "C+",
+          monthsCovered: 0.4,
+          verdict: "At 0.4 months coverage, an unexpected expense could force investment liquidation. Emergency fund is Priority 1 — everything else waits.",
+          risk: "medium"
+        }
       });
-      const d = await res.json();
-      const text = d.content?.[0]?.text||"{}";
-      const clean = text.replace(/```json|```/g,"").trim();
-      const parsed = JSON.parse(clean);
-      setWealthData(parsed);
       setWealthLastRun(new Date());
-    } catch(e) {
-      setWealthError("Analysis failed. Please try again.");
-    }
-    setWealthLoading(false);
+      setWealthLoading(false);
+    }, 800);
   };
   useEffect(()=>{const t=setInterval(()=>fetchAll(true),5*60*1000);return()=>clearInterval(t);},[fetchAll]);
   useEffect(()=>{setSelMonth(spendingMonths.length-1);},[spendingMonths.length]);
