@@ -716,7 +716,7 @@ export default function App(){
         </div>
 
         {/* ── MAIN CONTENT ── */}
-        <div style={{flex:1,overflowY:"auto",overflowX:"hidden",padding:"16px 14px 40px",minWidth:0,maxWidth:"calc(100vw - 180px)"}}>
+        <div style={{flex:1,overflowY:"auto",overflowX:"hidden",padding:"20px 24px 40px",flex:1,minWidth:0}}>
 
           {/* ── OVERVIEW TAB ── */}
           {tab==="overview"&&(
@@ -1117,15 +1117,38 @@ export default function App(){
                 {/* Transactions */}
                 <div style={dcStyle}>
                   <div style={{fontSize:12,fontWeight:700,color:TH.text,marginBottom:12}}>Transactions <span style={{fontSize:10,color:TH.muted,fontWeight:400}}>· {TXNS.length} entries</span></div>
-                  <div style={{maxHeight:400,overflowY:"auto"}}>
+                  <div style={{maxHeight:500,overflowY:"auto"}}>
                     {spendGroups().map((g,gi)=>{
-                      const isSav=g.type==="savings",amtC=isSav?TH.green:g.type==="notable"?"#FBBF24":TH.text2;
+                      const isSav=g.type==="savings",isFix=g.type==="fixed",isNot=g.type==="notable";
+                      const amtC=isSav?TH.green:isNot?"#FBBF24":TH.text2;
                       const CAT_ICON={Housing:"🏠",Food:"🍽️",Mom:"👩",Gas:"⛽","Japan Fund":"✈️",Retirement:"💰",Emergency:"🛡️",Cat:"🐱",Subscriptions:"📺",Phone:"📱",Internet:"🌐",Installment:"📋",Misc:"💳"};
                       return(
-                        <div key={gi} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 6px",borderBottom:`1px solid ${TH.border}`}}>
-                          <div style={{width:28,height:28,borderRadius:8,background:`${CAT_COLOR[g.cat]||TH.accent}15`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,flexShrink:0}}>{CAT_ICON[g.cat]||"💳"}</div>
-                          <div style={{flex:1}}><div style={{fontSize:11,fontWeight:600,color:TH.text}}>{g.cat}</div><div style={{fontSize:9,color:TH.muted}}>{g.txns.length} transaction{g.txns.length>1?"s":""}</div></div>
-                          <div style={{fontFamily:TH.mono,fontSize:11,fontWeight:700,color:amtC}}>{isSav?"+":"-"}{fmt(g.total)}</div>
+                        <div key={gi} style={{marginBottom:4}}>
+                          {/* Category header */}
+                          <div style={{display:"flex",alignItems:"center",gap:10,padding:"8px 8px",borderRadius:10,
+                            background:isSav?"rgba(74,222,128,0.05)":isNot?"rgba(251,191,36,0.04)":"transparent",
+                            border:`1px solid ${isSav?"rgba(74,222,128,0.15)":isNot?"rgba(251,191,36,0.15)":TH.border}`}}>
+                            <div style={{width:28,height:28,borderRadius:8,background:`${CAT_COLOR[g.cat]||TH.accent}15`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,flexShrink:0}}>{CAT_ICON[g.cat]||"💳"}</div>
+                            <div style={{flex:1}}>
+                              <div style={{display:"flex",alignItems:"center",gap:5}}>
+                                <span style={{fontSize:11,fontWeight:700,color:TH.text}}>{g.cat}</span>
+                                {isSav&&<span style={{fontSize:8,fontWeight:700,color:TH.green,background:"rgba(74,222,128,0.12)",padding:"1px 5px",borderRadius:999}}>SAVINGS</span>}
+                                {isFix&&<span style={{fontSize:8,color:TH.muted,background:"rgba(255,255,255,0.06)",padding:"1px 5px",borderRadius:999}}>FIXED</span>}
+                                {g.txns.length>1&&<span style={{fontSize:8,color:TH.muted}}>{g.txns.length}×</span>}
+                              </div>
+                            </div>
+                            <div style={{fontFamily:TH.mono,fontSize:11,fontWeight:700,color:amtC}}>{isSav?"+":"-"}{fmt(g.total)}</div>
+                          </div>
+                          {/* Individual transactions */}
+                          {g.txns.map((t,ti)=>(
+                            <div key={ti} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"5px 8px 5px 46px",borderBottom:`1px solid ${TH.border}`}}>
+                              <div>
+                                <div style={{fontSize:10,color:TH.text2}}>{t.desc||t.cat}</div>
+                                <div style={{fontSize:8,color:TH.muted}}>{t.date}{t.method?` · ${t.method}`:""}</div>
+                              </div>
+                              <div style={{fontFamily:TH.mono,fontSize:10,fontWeight:600,color:amtC}}>{isSav?"+":"-"}{fmt(t.amount)}</div>
+                            </div>
+                          ))}
                         </div>
                       );
                     })}
