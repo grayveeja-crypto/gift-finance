@@ -1124,8 +1124,9 @@ export default function App(){
                       const CAT_ICON={Housing:"🏠",Food:"🍽️",Mom:"👩",Gas:"⛽","Japan Fund":"✈️",Retirement:"💰",Emergency:"🛡️",Cat:"🐱",Subscriptions:"📺",Phone:"📱",Internet:"🌐",Installment:"📋",Misc:"💳"};
                       return(
                         <div key={gi} style={{marginBottom:4}}>
-                          {/* Category header */}
-                          <div style={{display:"flex",alignItems:"center",gap:10,padding:"8px 8px",borderRadius:10,
+                          {/* Category header — click to expand */}
+                          <div onClick={()=>setSelCat(selCat===g.cat?null:g.cat)}
+                            style={{display:"flex",alignItems:"center",gap:10,padding:"8px 8px",borderRadius:10,cursor:"pointer",
                             background:isSav?"rgba(74,222,128,0.05)":isNot?"rgba(251,191,36,0.04)":"transparent",
                             border:`1px solid ${isSav?"rgba(74,222,128,0.15)":isNot?"rgba(251,191,36,0.15)":TH.border}`}}>
                             <div style={{width:28,height:28,borderRadius:8,background:`${CAT_COLOR[g.cat]||TH.accent}15`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,flexShrink:0}}>{CAT_ICON[g.cat]||"💳"}</div>
@@ -1139,8 +1140,8 @@ export default function App(){
                             </div>
                             <div style={{fontFamily:TH.mono,fontSize:11,fontWeight:700,color:amtC}}>{isSav?"+":"-"}{fmt(g.total)}</div>
                           </div>
-                          {/* Individual transactions */}
-                          {g.txns.map((t,ti)=>(
+                          {/* Individual transactions — show when expanded */}
+                          {selCat===g.cat&&g.txns.map((t,ti)=>(
                             <div key={ti} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"5px 8px 5px 46px",borderBottom:`1px solid ${TH.border}`}}>
                               <div>
                                 <div style={{fontSize:10,color:TH.text2}}>{t.desc||t.cat}</div>
