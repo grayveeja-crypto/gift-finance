@@ -661,9 +661,9 @@ export default function App(){
         `}</style>
 
         {/* ── LEFT SIDEBAR ── */}
-        <div style={{width:220,flexShrink:0,background:darkMode?"#060912":"#FFFFFF",borderRight:`1px solid ${TH.border}`,display:"flex",flexDirection:"column",position:"sticky",top:0,height:"100vh",overflowY:"auto"}}>
+        <div style={{width:180,flexShrink:0,background:darkMode?"#060912":"#FFFFFF",borderRight:`1px solid ${TH.border}`,display:"flex",flexDirection:"column",position:"sticky",top:0,height:"100vh",overflowY:"auto"}}>
           {/* Logo + profile */}
-          <div style={{padding:"20px 16px 14px",borderBottom:`1px solid ${TH.border}`}}>
+          <div style={{padding:"16px 12px 12px",borderBottom:`1px solid ${TH.border}`}}>
             <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
               <button onClick={()=>setProfOpen(true)} style={{width:38,height:38,borderRadius:"50%",border:"none",padding:0,cursor:"pointer",overflow:"hidden",background:"linear-gradient(135deg,#6366F1,#F472B6)",flexShrink:0}}>
                 {profilePhoto?<img src={profilePhoto} style={{width:"100%",height:"100%",objectFit:"cover"}} alt="G"/>:<span style={{fontSize:16,color:"white",fontWeight:700}}>G</span>}
@@ -680,7 +680,7 @@ export default function App(){
           </div>
 
           {/* Nav */}
-          <div style={{padding:"12px 10px",flex:1}}>
+          <div style={{padding:"8px 8px",flex:1}}>
             {[
               {id:"overview",    label:"Overview",   Icon:Home},
               {id:"investments", label:"Invest",     Icon:BarChart2},
@@ -698,7 +698,7 @@ export default function App(){
           </div>
 
           {/* Portfolio summary */}
-          <div style={{padding:"14px 14px 20px",borderTop:`1px solid ${TH.border}`}}>
+          <div style={{padding:"12px 12px 16px",borderTop:`1px solid ${TH.border}`}}>
             <div style={{fontSize:9,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".07em",marginBottom:6}}>Net Worth</div>
             <div style={{fontFamily:TH.mono,fontSize:20,fontWeight:900,color:TH.text,letterSpacing:"-1px",marginBottom:2}}>{fmt(NW)}</div>
             <div style={{fontSize:10,color:TH.muted,marginBottom:10}}>{fmt(TOTAL)} − {fmt(DEBT)} debt</div>
@@ -716,7 +716,7 @@ export default function App(){
         </div>
 
         {/* ── MAIN CONTENT ── */}
-        <div style={{flex:1,overflowY:"auto",overflowX:"hidden",padding:"24px 20px 40px",minWidth:0,width:0}}>
+        <div style={{flex:1,overflowY:"auto",overflowX:"hidden",padding:"16px 16px 40px",minWidth:0,width:0}}>
 
           {/* ── OVERVIEW TAB ── */}
           {tab==="overview"&&(
@@ -821,9 +821,10 @@ export default function App(){
                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
                       <div style={{fontSize:12,fontWeight:700,color:TH.text}}>{CM.m} Spending</div>
                       <div style={{display:"flex",gap:6}}>
-                        {spendingMonths.map((sm,i)=>(
-                          <button key={i} onClick={()=>setSelMonth(i)} style={{padding:"3px 10px",borderRadius:999,fontSize:10,fontWeight:600,cursor:"pointer",border:`1px solid ${selMonth===i?TH.accent:TH.border}`,background:selMonth===i?TH.accent:"transparent",color:selMonth===i?"white":TH.inactive}}>{sm.m.split(" ")[0]}</button>
-                        ))}
+                        {spendingMonths.slice(-3).map((sm,i)=>{
+                          const actualIdx=spendingMonths.length-3+i;
+                          return <button key={i} onClick={()=>setSelMonth(actualIdx)} style={{padding:"3px 10px",borderRadius:999,fontSize:10,fontWeight:600,cursor:"pointer",border:`1px solid ${selMonth===actualIdx?TH.accent:TH.border}`,background:selMonth===actualIdx?TH.accent:"transparent",color:selMonth===actualIdx?"white":TH.inactive}}>{sm.m.split(" ")[0]}</button>;
+                        })}
                       </div>
                     </div>
                     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:12}}>
@@ -1070,9 +1071,10 @@ export default function App(){
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
                     <div style={{fontSize:12,fontWeight:700,color:TH.text}}>{CM.m}</div>
                     <div style={{display:"flex",gap:6}}>
-                      {spendingMonths.map((sm,i)=>(
-                        <button key={i} onClick={()=>setSelMonth(i)} style={{padding:"3px 10px",borderRadius:999,fontSize:10,fontWeight:600,cursor:"pointer",border:`1px solid ${selMonth===i?TH.accent:TH.border}`,background:selMonth===i?TH.accent:"transparent",color:selMonth===i?"white":TH.inactive}}>{sm.m.split(" ")[0]}</button>
-                      ))}
+                      {spendingMonths.slice(-3).map((sm,i)=>{
+                        const actualIdx=spendingMonths.length-3+i;
+                        return <button key={i} onClick={()=>setSelMonth(actualIdx)} style={{padding:"3px 10px",borderRadius:999,fontSize:10,fontWeight:600,cursor:"pointer",border:`1px solid ${selMonth===actualIdx?TH.accent:TH.border}`,background:selMonth===actualIdx?TH.accent:"transparent",color:selMonth===actualIdx?"white":TH.inactive}}>{sm.m.split(" ")[0]}</button>;
+                      })}
                     </div>
                   </div>
                   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:12}}>
