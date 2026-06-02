@@ -545,6 +545,88 @@ export default function App(){
   },[]);
 
   useEffect(()=>{fetchAll();},[fetchAll]);
+
+  const runWealthAnalysis = async() => {
+    setWealthLoading(true); setWealthError(null);
+    const GL = holdings.reduce((s,h)=>s+(h.value-h.cost),0);
+    const totalCost = holdings.reduce((s,h)=>s+h.cost,0);
+    const gainPct = totalCost>0?(GL/totalCost*100):0;
+    const pvdContrib = 10648;
+    const gross = 88733;
+    const savCats = ["Emergency","Japan Fund","Retirement"];
+    const txnSav = (CM.transactions||[]).filter(t=>savCats.includes(t.cat)).reduce((s,t)=>s+t.amount,0);
+    const savRate = Math.round((txnSav+pvdContrib)/gross*100);
+    const alloc = getAlloc(holdings);
+
+    const prompt = `You are a professional financial advisor analyzing Gift's personal finances in Thailand. Provide a structured JSON analysis with exactly these 4 keys: "allocation", "tax", "nextMove", "liquidity".
+
+Gift's financial data:
+- Age: 44, Retirement target: Age 60 (16 years)
+- Gross income: ฿88,733/mo, Take-home: ฿75,400/mo
+- Portfolio total: ${fmt(holdings.reduce((s,h)=>s+h.value,0))}
+- Personal investments: ${fmt(holdings.filter(h=>h.type==="Personal").reduce((s,h)=>s+h.value,0))} (SCB RMF funds)
+- PVD retirement: ${fmt(holdings.filter(h=>h.type==="Retirement").reduce((s,h)=>s+h.value,0))} (UOB Asset Management)
+- Total debt: ${fmt(debts.reduce((s,d)=>s+d.balance,0))} (House 3.75%, Attached 5.83%)
+- Emergency fund: ${fmt(cashFlow.emergencyFund||0)} of ฿143,000 target (${((cashFlow.emergencyFund||0)/143000*100).toFixed(0)}%)
+- Current savings rate: ${savRate}% of gross (Emergency ฿8K + Japan Fund ฿15K + RMF ฿10K + PVD 12% ฿10,648)
+- Unrealized gain: ${fmt(GL)} (+${gainPct.toFixed(1)}%)
+- Asset allocation: ${alloc.map(a=>a.cls+' '+a.pct+'%').join(', ')}
+- Target allocation: Global Equity 35%, US Equity 15%, Fixed Income 30%, Gold 10%, Thai Equity 5%, Balanced 5%
+- DCA: ฿10,000/mo alternating SCBRMS&P500 and SCBRMWORLD(A)
+- PVD allocation: Global Equity 35%, Balanced 25%, Fixed Income 25%, Gold 10%, Global Bond 5%
+- Debts: House Mortgage ฿${debts[0]?.balance||636873} at 3.75%, Attached Housing ฿${debts[1]?.balance||175919} at 5.83%
+- Latest month spending: ${fmt(CM.spent||0)} vs budget ฿70,400
+
+Respond ONLY with valid JSON, no markdown, no explanation outside JSON:
+{
+  "score": <number 0-100>,
+  "scoreLabel": "<Good/Excellent/Needs Work>",
+  "allocation": {
+    "grade": "<A/B+/B/C+/C>",
+    "gaps": ["<specific finding 1>", "<specific finding 2>"],
+    "verdict": "<one sentence summary>"
+  },
+  "tax": {
+    "grade": "<A/B+/B/C+/C>",
+    "rmfSaved": <estimated annual tax saved in THB number>,
+    "pvdSaved": <estimated annual tax saved from PVD in THB number>,
+    "verdict": "<one sentence summary>",
+    "tip": "<one actionable tip>"
+  },
+  "nextMove": {
+    "lowHanging": ["<action 1 with specific numbers>", "<action 2 with specific numbers>"],
+    "strategic": ["<strategic action 1>", "<strategic action 2>"]
+  },
+  "liquidity": {
+    "grade": "<A/B+/B/C+/C>",
+    "monthsCovered": <number>,
+    "verdict": "<one sentence>",
+    "risk": "<low/medium/high>"
+  }
+}`;
+
+    try {
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({
+          model:"claude-sonnet-4-20250514",
+          max_tokens:1000,
+          system:"You are a Thai financial advisor. Always respond with pure JSON only, no markdown fences, no extra text.",
+          messages:[{role:"user",content:prompt}]
+        })
+      });
+      const d = await res.json();
+      const text = d.content?.[0]?.text||"{}";
+      const clean = text.replace(/```json|```/g,"").trim();
+      const parsed = JSON.parse(clean);
+      setWealthData(parsed);
+      setWealthLastRun(new Date());
+    } catch(e) {
+      setWealthError("Analysis failed. Please try again.");
+    }
+    setWealthLoading(false);
+  };
   useEffect(()=>{const t=setInterval(()=>fetchAll(true),5*60*1000);return()=>clearInterval(t);},[fetchAll]);
   useEffect(()=>{setSelMonth(spendingMonths.length-1);},[spendingMonths.length]);
 
@@ -693,6 +775,7 @@ export default function App(){
               {id:"investments", label:"Invest",     Icon:BarChart2},
               {id:"spending",    label:"Spending",   Icon:CreditCard},
               {id:"planning",    label:"Plan",       Icon:Target},
+              {id:"wealth",      label:"Wealth ✦",   Icon:Sparkles},
             ].map(({id,label,Icon})=>(
               <button key={id} onClick={()=>setTab(id)}
                 style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"10px 12px",borderRadius:11,border:"none",cursor:"pointer",marginBottom:4,
@@ -1318,7 +1401,179 @@ export default function App(){
           )}
         </div>
 
-        {/* Overlays work on desktop too */}
+          {/* ── WEALTH TAB (desktop) ── */}
+          {tab==="wealth"&&(
+            <div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) minmax(0,1fr)",gap:16,alignItems:"start"}}>
+              {/* Left — Run + Score + Allocation + Next Move */}
+              <div style={{display:"flex",flexDirection:"column",gap:14}}>
+                {/* Run Analysis */}
+                <div style={{...dcStyle,background:"linear-gradient(135deg,rgba(99,102,241,0.12),rgba(56,189,248,0.07))",border:"1px solid rgba(99,102,241,0.25)"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
+                    <div style={{width:36,height:36,borderRadius:11,background:"linear-gradient(135deg,#6366F1,#38BDF8)",display:"flex",alignItems:"center",justifyContent:"center"}}>
+                      <Sparkles size={18} color="white"/>
+                    </div>
+                    <div>
+                      <div style={{fontSize:14,fontWeight:800,color:TH.text}}>Wealth Intelligence</div>
+                      <div style={{fontSize:10,color:TH.muted}}>{wealthLastRun?`Last run ${wealthLastRun.toLocaleTimeString("th-TH",{hour:"2-digit",minute:"2-digit"})}`:"AI-powered financial analysis"}</div>
+                    </div>
+                  </div>
+                  <button onClick={runWealthAnalysis} disabled={wealthLoading}
+                    style={{width:"100%",padding:"11px",borderRadius:12,border:"none",background:"linear-gradient(135deg,#6366F1,#4F46E5)",color:"white",fontWeight:700,fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8,opacity:wealthLoading?0.7:1}}>
+                    {wealthLoading?<><div style={{width:14,height:14,borderRadius:"50%",border:"2px solid rgba(255,255,255,0.3)",borderTopColor:"white",animation:"spin 1s linear infinite"}}/> Analysing your portfolio…</>:<><Sparkles size={14}/> Run Full Analysis</>}
+                  </button>
+                  {wealthError&&<div style={{marginTop:8,fontSize:11,color:TH.red,textAlign:"center"}}>{wealthError}</div>}
+                </div>
+
+                {/* Score */}
+                {wealthData&&(
+                  <div style={dcStyle}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+                      <div>
+                        <div style={{fontSize:9,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".07em",marginBottom:4}}>Wealth Score</div>
+                        <div style={{fontSize:48,fontWeight:900,color:wealthData.score>=70?TH.green:wealthData.score>=50?TH.gold:TH.red,letterSpacing:"-2px",lineHeight:1,fontFamily:TH.mono}}>{wealthData.score}</div>
+                        <div style={{fontSize:12,color:TH.muted,marginTop:4}}>{wealthData.scoreLabel}</div>
+                      </div>
+                      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                        {[{l:"Allocation",g:wealthData.allocation?.grade},{l:"Tax",g:wealthData.tax?.grade},{l:"Liquidity",g:wealthData.liquidity?.grade},{l:"Growth",g:wealthData.score>=70?"A-":"B+"}].map((s,i)=>(
+                          <div key={i} style={{textAlign:"center",padding:"8px 12px",background:TH.surf,borderRadius:10,border:`1px solid ${TH.border}`}}>
+                            <div style={{fontSize:9,color:TH.muted,marginBottom:3}}>{s.l}</div>
+                            <div style={{fontSize:16,fontWeight:900,color:s.g?.startsWith("A")?TH.green:s.g?.startsWith("B")?TH.gold:TH.red}}>{s.g||"B"}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    <div style={{height:6,background:darkMode?"rgba(255,255,255,0.07)":"rgba(0,0,0,0.07)",borderRadius:999,overflow:"hidden"}}>
+                      <div style={{height:"100%",width:`${wealthData.score}%`,background:`linear-gradient(90deg,${wealthData.score>=70?"#4ADE80":"#FBBF24"},${wealthData.score>=70?"#22C55E":"#F59E0B"})`,borderRadius:999}}/>
+                    </div>
+                  </div>
+                )}
+
+                {/* Allocation */}
+                {wealthData?.allocation&&(
+                  <div style={dcStyle}>
+                    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
+                      <span style={{fontSize:18}}>📊</span>
+                      <div style={{flex:1,fontSize:12,fontWeight:700,color:TH.text}}>Allocation Audit</div>
+                      <span style={{fontSize:12,fontWeight:800,color:wealthData.allocation.grade?.startsWith("A")?TH.green:TH.gold,background:wealthData.allocation.grade?.startsWith("A")?"rgba(74,222,128,0.1)":"rgba(251,191,36,0.1)",padding:"3px 10px",borderRadius:999}}>{wealthData.allocation.grade}</span>
+                    </div>
+                    <div style={{fontSize:11,color:TH.muted,marginBottom:10,fontStyle:"italic"}}>{wealthData.allocation.verdict}</div>
+                    {wealthData.allocation.gaps?.map((g,i)=>(
+                      <div key={i} style={{display:"flex",gap:8,padding:"9px 11px",background:"rgba(251,191,36,0.05)",border:"1px solid rgba(251,191,36,0.15)",borderRadius:10,marginBottom:6}}>
+                        <AlertTriangle size={13} color={TH.gold} style={{flexShrink:0,marginTop:1}}/>
+                        <div style={{fontSize:11,color:TH.text2,lineHeight:1.5}}>{g}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Next Move */}
+                {wealthData?.nextMove&&(
+                  <div style={dcStyle}>
+                    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
+                      <span style={{fontSize:18}}>🎯</span>
+                      <div style={{fontSize:12,fontWeight:700,color:TH.text}}>Next Move Action Plan</div>
+                    </div>
+                    <div style={{fontSize:10,fontWeight:700,color:TH.green,textTransform:"uppercase",letterSpacing:".07em",marginBottom:8}}>Low-Hanging Fruit</div>
+                    {wealthData.nextMove.lowHanging?.map((a,i)=>(
+                      <div key={i} style={{display:"flex",gap:9,padding:"10px 12px",background:"rgba(74,222,128,0.05)",border:"1px solid rgba(74,222,128,0.15)",borderRadius:10,marginBottom:7}}>
+                        <div style={{width:20,height:20,borderRadius:"50%",background:"rgba(74,222,128,0.2)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:800,color:TH.green,flexShrink:0}}>{i+1}</div>
+                        <div style={{fontSize:11,color:TH.text2,lineHeight:1.55}}>{a}</div>
+                      </div>
+                    ))}
+                    <div style={{fontSize:10,fontWeight:700,color:"#818CF8",textTransform:"uppercase",letterSpacing:".07em",marginBottom:8,marginTop:12}}>Strategic Plays</div>
+                    {wealthData.nextMove.strategic?.map((a,i)=>(
+                      <div key={i} style={{display:"flex",gap:9,padding:"10px 12px",background:"rgba(99,102,241,0.05)",border:"1px solid rgba(99,102,241,0.15)",borderRadius:10,marginBottom:7}}>
+                        <ArrowRight size={13} color="#818CF8" style={{flexShrink:0,marginTop:1}}/>
+                        <div style={{fontSize:11,color:TH.text2,lineHeight:1.55}}>{a}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Right — Tax + Liquidity + empty state */}
+              <div style={{display:"flex",flexDirection:"column",gap:14}}>
+                {!wealthData&&!wealthLoading&&(
+                  <div style={{...dcStyle,textAlign:"center",padding:"60px 20px"}}>
+                    <div style={{fontSize:48,marginBottom:16}}>✦</div>
+                    <div style={{fontSize:15,fontWeight:700,color:TH.text2,marginBottom:8}}>Ready to analyse your wealth</div>
+                    <div style={{fontSize:12,color:TH.muted,lineHeight:1.7,maxWidth:300,margin:"0 auto"}}>Click "Run Full Analysis" to get AI-powered insights on your portfolio allocation, tax efficiency, priority next actions, and liquidity risk.</div>
+                  </div>
+                )}
+
+                {/* Tax */}
+                {wealthData?.tax&&(
+                  <div style={dcStyle}>
+                    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
+                      <span style={{fontSize:18}}>💡</span>
+                      <div style={{flex:1,fontSize:12,fontWeight:700,color:TH.text}}>Tax & Match Optimisation</div>
+                      <span style={{fontSize:12,fontWeight:800,color:TH.green,background:"rgba(74,222,128,0.1)",padding:"3px 10px",borderRadius:999}}>{wealthData.tax.grade}</span>
+                    </div>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
+                      <div style={{padding:"12px",background:"rgba(74,222,128,0.06)",border:"1px solid rgba(74,222,128,0.15)",borderRadius:12}}>
+                        <div style={{fontSize:9,color:TH.muted,marginBottom:4}}>RMF Tax Saved</div>
+                        <div style={{fontFamily:TH.mono,fontSize:18,fontWeight:900,color:TH.green}}>฿{(wealthData.tax.rmfSaved||0).toLocaleString()}</div>
+                        <div style={{fontSize:9,color:TH.muted,marginTop:2}}>estimated per year</div>
+                      </div>
+                      <div style={{padding:"12px",background:"rgba(56,189,248,0.06)",border:"1px solid rgba(56,189,248,0.15)",borderRadius:12}}>
+                        <div style={{fontSize:9,color:TH.muted,marginBottom:4}}>PVD Tax Saved</div>
+                        <div style={{fontFamily:TH.mono,fontSize:18,fontWeight:900,color:TH.accent2}}>฿{(wealthData.tax.pvdSaved||0).toLocaleString()}</div>
+                        <div style={{fontSize:9,color:TH.muted,marginTop:2}}>estimated per year</div>
+                      </div>
+                    </div>
+                    <div style={{fontSize:11,color:TH.muted,marginBottom:8}}>{wealthData.tax.verdict}</div>
+                    {wealthData.tax.tip&&<div style={{padding:"10px 12px",background:"rgba(99,102,241,0.06)",border:"1px solid rgba(99,102,241,0.15)",borderRadius:10,fontSize:11,color:TH.text2,lineHeight:1.5}}><span style={{color:TH.accent,fontWeight:700}}>💡 Tip: </span>{wealthData.tax.tip}</div>}
+                  </div>
+                )}
+
+                {/* Liquidity */}
+                {wealthData?.liquidity&&(
+                  <div style={dcStyle}>
+                    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
+                      <span style={{fontSize:18}}>🛡️</span>
+                      <div style={{flex:1,fontSize:12,fontWeight:700,color:TH.text}}>Risk & Liquidity Check</div>
+                      <span style={{fontSize:11,fontWeight:800,
+                        color:wealthData.liquidity.risk==="low"?TH.green:wealthData.liquidity.risk==="medium"?TH.gold:TH.red,
+                        background:wealthData.liquidity.risk==="low"?"rgba(74,222,128,0.1)":wealthData.liquidity.risk==="medium"?"rgba(251,191,36,0.1)":"rgba(248,113,113,0.1)",
+                        padding:"3px 10px",borderRadius:999,textTransform:"capitalize"}}>{wealthData.liquidity.risk} risk</span>
+                    </div>
+                    <div style={{display:"flex",alignItems:"center",gap:16,marginBottom:12}}>
+                      <div style={{textAlign:"center",flexShrink:0}}>
+                        <div style={{fontFamily:TH.mono,fontSize:36,fontWeight:900,color:TH.text,lineHeight:1}}>{wealthData.liquidity.monthsCovered?.toFixed(1)}</div>
+                        <div style={{fontSize:10,color:TH.muted}}>months covered</div>
+                      </div>
+                      <div style={{flex:1}}>
+                        <div style={{height:8,background:darkMode?"rgba(255,255,255,0.07)":"rgba(0,0,0,0.07)",borderRadius:999,overflow:"hidden",marginBottom:6}}>
+                          <div style={{height:"100%",width:`${Math.min((wealthData.liquidity.monthsCovered||0)/4*100,100)}%`,background:wealthData.liquidity.monthsCovered>=3?TH.green:wealthData.liquidity.monthsCovered>=1.5?TH.gold:TH.red,borderRadius:999}}/>
+                        </div>
+                        <div style={{display:"flex",justifyContent:"space-between",fontSize:9,color:TH.dim}}><span>0</span><span>2mo</span><span>4mo target</span></div>
+                      </div>
+                    </div>
+                    <div style={{fontSize:11,color:TH.muted,lineHeight:1.6}}>{wealthData.liquidity.verdict}</div>
+                  </div>
+                )}
+
+                {/* PVD employer match reminder */}
+                <div style={dcStyle}>
+                  <div style={{fontSize:12,fontWeight:700,color:TH.text,marginBottom:12}}>Employer Match</div>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 12px",background:"rgba(74,222,128,0.06)",border:"1px solid rgba(74,222,128,0.15)",borderRadius:12,marginBottom:8}}>
+                    <div><div style={{fontSize:10,fontWeight:600,color:TH.text}}>PVD Employer Match</div><div style={{fontSize:9,color:TH.muted}}>Free money every month</div></div>
+                    <div style={{fontFamily:TH.mono,fontSize:16,fontWeight:800,color:TH.green}}>฿10,648</div>
+                  </div>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 12px",background:"rgba(56,189,248,0.06)",border:"1px solid rgba(56,189,248,0.15)",borderRadius:12}}>
+                    <div><div style={{fontSize:10,fontWeight:600,color:TH.text}}>Your PVD 12%</div><div style={{fontSize:9,color:TH.muted}}>Pre-tax deduction</div></div>
+                    <div style={{fontFamily:TH.mono,fontSize:16,fontWeight:800,color:TH.accent2}}>฿10,648</div>
+                  </div>
+                  <div style={{marginTop:10,padding:"8px 12px",background:TH.surf,borderRadius:10,border:`1px solid ${TH.border}`,display:"flex",justifyContent:"space-between"}}>
+                    <span style={{fontSize:11,color:TH.muted}}>Total PVD/mo</span>
+                    <span style={{fontFamily:TH.mono,fontSize:12,fontWeight:700,color:TH.text}}>฿21,296</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+        {/* Overlays work on desktop too */}}
         <ProfilePanel open={profOpen} onClose={()=>setProfOpen(false)} photo={profilePhoto} onPhotoChange={p=>{setProfilePhoto(p);try{localStorage.setItem('gf_photo',p);}catch{}}} name="Gift" darkMode={darkMode} setDarkMode={setDarkMode}/>
         <FundPanel fund={selFund} onClose={()=>setSelFund(null)}/>
         <AIPanel open={aiOpen} onClose={()=>setAiOpen(false)} holdings={holdings} debts={debts} spendingMonths={spendingMonths}/>
@@ -2034,6 +2289,161 @@ export default function App(){
             ))}
             {REBAL.every(r=>r.diff===0)&&<div style={{textAlign:"center",padding:16,color:TH.green,fontSize:12,fontWeight:600}}>✅ Portfolio balanced!</div>}
           </div>
+        </div>)}
+
+        {/* ══ WEALTH ADVISOR ══ */}
+        {tab==="wealth"&&(<div style={{display:"flex",flexDirection:"column",gap:12}}>
+
+          {/* Run Analysis card */}
+          <div style={{borderRadius:20,background:"linear-gradient(135deg,rgba(99,102,241,0.15),rgba(56,189,248,0.08))",border:"1px solid rgba(99,102,241,0.3)",padding:"18px 16px"}}>
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
+              <div style={{width:36,height:36,borderRadius:11,background:"linear-gradient(135deg,#6366F1,#38BDF8)",display:"flex",alignItems:"center",justifyContent:"center"}}>
+                <Sparkles size={18} color="white"/>
+              </div>
+              <div>
+                <div style={{fontSize:14,fontWeight:800,color:TH.text}}>Wealth Intelligence</div>
+                <div style={{fontSize:10,color:TH.muted}}>{wealthLastRun?`Last run ${wealthLastRun.toLocaleTimeString("th-TH",{hour:"2-digit",minute:"2-digit"})}`:"AI-powered analysis of your finances"}</div>
+              </div>
+            </div>
+            <button onClick={runWealthAnalysis} disabled={wealthLoading}
+              style={{width:"100%",padding:"11px",borderRadius:12,border:"none",background:"linear-gradient(135deg,#6366F1,#4F46E5)",color:"white",fontWeight:700,fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8,opacity:wealthLoading?0.7:1}}>
+              {wealthLoading?<><div style={{width:14,height:14,borderRadius:"50%",border:"2px solid rgba(255,255,255,0.3)",borderTopColor:"white",animation:"spin 1s linear infinite"}}/> Analysing…</>:<><Sparkles size={14}/> Run Full Analysis</>}
+            </button>
+            {wealthError&&<div style={{marginTop:8,fontSize:11,color:TH.red,textAlign:"center"}}>{wealthError}</div>}
+          </div>
+
+          {/* Wealth Score */}
+          {wealthData&&(
+            <div style={{borderRadius:18,background:TH.surf,border:`1px solid ${TH.border}`,padding:"14px 15px"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                <div>
+                  <div style={{fontSize:9,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".07em",marginBottom:4}}>Wealth Score</div>
+                  <div style={{fontSize:42,fontWeight:900,color:wealthData.score>=70?TH.green:wealthData.score>=50?TH.gold:TH.red,letterSpacing:"-2px",lineHeight:1,fontFamily:TH.mono}}>{wealthData.score}</div>
+                  <div style={{fontSize:11,color:TH.muted,marginTop:3}}>{wealthData.scoreLabel}</div>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                  {[
+                    {l:"Allocation",g:wealthData.allocation?.grade},
+                    {l:"Tax",g:wealthData.tax?.grade},
+                    {l:"Liquidity",g:wealthData.liquidity?.grade},
+                    {l:"Growth",g:wealthData.score>=70?"A-":wealthData.score>=50?"B+":"B"},
+                  ].map((s,i)=>(
+                    <div key={i} style={{textAlign:"center",padding:"6px 10px",background:"rgba(255,255,255,0.04)",borderRadius:10}}>
+                      <div style={{fontSize:8,color:TH.muted,marginBottom:2}}>{s.l}</div>
+                      <div style={{fontSize:14,fontWeight:800,color:s.g?.startsWith("A")?TH.green:s.g?.startsWith("B")?TH.gold:TH.red}}>{s.g||"B"}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div style={{height:5,background:"rgba(255,255,255,0.07)",borderRadius:999,overflow:"hidden"}}>
+                <div style={{height:"100%",width:`${wealthData.score}%`,background:`linear-gradient(90deg,${wealthData.score>=70?"#4ADE80":wealthData.score>=50?"#FBBF24":"#F87171"},${wealthData.score>=70?"#22C55E":wealthData.score>=50?"#F59E0B":"#DC2626"})`,borderRadius:999}}/>
+              </div>
+            </div>
+          )}
+
+          {/* Allocation Audit */}
+          {wealthData?.allocation&&(
+            <div style={{borderRadius:18,background:TH.surf,border:`1px solid ${TH.border}`,padding:"14px 15px"}}>
+              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
+                <div style={{width:28,height:28,borderRadius:8,background:"rgba(251,191,36,0.15)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14}}>📊</div>
+                <div style={{flex:1,fontSize:12,fontWeight:700,color:TH.text}}>Allocation Audit</div>
+                <div style={{fontSize:11,fontWeight:800,color:wealthData.allocation.grade?.startsWith("A")?TH.green:TH.gold,background:wealthData.allocation.grade?.startsWith("A")?"rgba(74,222,128,0.1)":"rgba(251,191,36,0.1)",padding:"2px 10px",borderRadius:999}}>{wealthData.allocation.grade}</div>
+              </div>
+              <div style={{fontSize:10,color:TH.muted,marginBottom:10,fontStyle:"italic"}}>{wealthData.allocation.verdict}</div>
+              {wealthData.allocation.gaps?.map((g,i)=>(
+                <div key={i} style={{display:"flex",gap:8,padding:"8px 10px",borderRadius:10,background:"rgba(251,191,36,0.05)",border:"1px solid rgba(251,191,36,0.15)",marginBottom:6}}>
+                  <AlertTriangle size={12} color={TH.gold} style={{flexShrink:0,marginTop:1}}/>
+                  <div style={{fontSize:10,color:TH.text2,lineHeight:1.5}}>{g}</div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Tax & Match */}
+          {wealthData?.tax&&(
+            <div style={{borderRadius:18,background:TH.surf,border:`1px solid ${TH.border}`,padding:"14px 15px"}}>
+              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
+                <div style={{width:28,height:28,borderRadius:8,background:"rgba(74,222,128,0.15)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14}}>💡</div>
+                <div style={{flex:1,fontSize:12,fontWeight:700,color:TH.text}}>Tax & Match Optimisation</div>
+                <div style={{fontSize:11,fontWeight:800,color:TH.green,background:"rgba(74,222,128,0.1)",padding:"2px 10px",borderRadius:999}}>{wealthData.tax.grade}</div>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}}>
+                <div style={{padding:"10px 12px",background:"rgba(74,222,128,0.06)",border:"1px solid rgba(74,222,128,0.15)",borderRadius:12}}>
+                  <div style={{fontSize:9,color:TH.muted,marginBottom:3}}>RMF Tax Saved</div>
+                  <div style={{fontFamily:TH.mono,fontSize:15,fontWeight:800,color:TH.green}}>฿{(wealthData.tax.rmfSaved||0).toLocaleString()}</div>
+                  <div style={{fontSize:9,color:TH.muted,marginTop:1}}>est. per year</div>
+                </div>
+                <div style={{padding:"10px 12px",background:"rgba(56,189,248,0.06)",border:"1px solid rgba(56,189,248,0.15)",borderRadius:12}}>
+                  <div style={{fontSize:9,color:TH.muted,marginBottom:3}}>PVD Tax Saved</div>
+                  <div style={{fontFamily:TH.mono,fontSize:15,fontWeight:800,color:TH.accent2}}>฿{(wealthData.tax.pvdSaved||0).toLocaleString()}</div>
+                  <div style={{fontSize:9,color:TH.muted,marginTop:1}}>est. per year</div>
+                </div>
+              </div>
+              <div style={{fontSize:10,color:TH.muted,marginBottom:6}}>{wealthData.tax.verdict}</div>
+              {wealthData.tax.tip&&<div style={{padding:"8px 10px",background:"rgba(99,102,241,0.06)",border:"1px solid rgba(99,102,241,0.15)",borderRadius:10,fontSize:10,color:TH.text2}}><span style={{color:TH.accent,fontWeight:700}}>Tip: </span>{wealthData.tax.tip}</div>}
+            </div>
+          )}
+
+          {/* Next Move */}
+          {wealthData?.nextMove&&(
+            <div style={{borderRadius:18,background:TH.surf,border:`1px solid ${TH.border}`,padding:"14px 15px"}}>
+              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
+                <div style={{width:28,height:28,borderRadius:8,background:"rgba(99,102,241,0.15)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14}}>🎯</div>
+                <div style={{fontSize:12,fontWeight:700,color:TH.text}}>Next Move Action Plan</div>
+              </div>
+              <div style={{fontSize:9,fontWeight:700,color:TH.green,textTransform:"uppercase",letterSpacing:".07em",marginBottom:8}}>Low-Hanging Fruit</div>
+              {wealthData.nextMove.lowHanging?.map((a,i)=>(
+                <div key={i} style={{display:"flex",gap:8,padding:"9px 10px",background:"rgba(74,222,128,0.05)",border:"1px solid rgba(74,222,128,0.15)",borderRadius:10,marginBottom:6}}>
+                  <div style={{width:18,height:18,borderRadius:"50%",background:"rgba(74,222,128,0.2)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:800,color:TH.green,flexShrink:0}}>{i+1}</div>
+                  <div style={{fontSize:10,color:TH.text2,lineHeight:1.5}}>{a}</div>
+                </div>
+              ))}
+              <div style={{fontSize:9,fontWeight:700,color:"#818CF8",textTransform:"uppercase",letterSpacing:".07em",marginBottom:8,marginTop:10}}>Strategic Plays</div>
+              {wealthData.nextMove.strategic?.map((a,i)=>(
+                <div key={i} style={{display:"flex",gap:8,padding:"9px 10px",background:"rgba(99,102,241,0.05)",border:"1px solid rgba(99,102,241,0.15)",borderRadius:10,marginBottom:6}}>
+                  <ArrowRight size={12} color="#818CF8" style={{flexShrink:0,marginTop:1}}/>
+                  <div style={{fontSize:10,color:TH.text2,lineHeight:1.5}}>{a}</div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Risk & Liquidity */}
+          {wealthData?.liquidity&&(
+            <div style={{borderRadius:18,background:TH.surf,border:`1px solid ${TH.border}`,padding:"14px 15px"}}>
+              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
+                <div style={{width:28,height:28,borderRadius:8,background:"rgba(248,113,113,0.15)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14}}>🛡️</div>
+                <div style={{flex:1,fontSize:12,fontWeight:700,color:TH.text}}>Risk & Liquidity</div>
+                <div style={{fontSize:11,fontWeight:800,
+                  color:wealthData.liquidity.risk==="low"?TH.green:wealthData.liquidity.risk==="medium"?TH.gold:TH.red,
+                  background:wealthData.liquidity.risk==="low"?"rgba(74,222,128,0.1)":wealthData.liquidity.risk==="medium"?"rgba(251,191,36,0.1)":"rgba(248,113,113,0.1)",
+                  padding:"2px 10px",borderRadius:999,textTransform:"capitalize"}}>{wealthData.liquidity.risk} risk</div>
+              </div>
+              <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:10}}>
+                <div style={{textAlign:"center"}}>
+                  <div style={{fontFamily:TH.mono,fontSize:28,fontWeight:900,color:TH.text,lineHeight:1}}>{wealthData.liquidity.monthsCovered?.toFixed(1)}</div>
+                  <div style={{fontSize:9,color:TH.muted}}>months covered</div>
+                </div>
+                <div style={{flex:1}}>
+                  <div style={{height:8,background:"rgba(255,255,255,0.07)",borderRadius:999,overflow:"hidden",marginBottom:4}}>
+                    <div style={{height:"100%",width:`${Math.min((wealthData.liquidity.monthsCovered||0)/4*100,100)}%`,background:wealthData.liquidity.monthsCovered>=3?TH.green:wealthData.liquidity.monthsCovered>=1.5?TH.gold:TH.red,borderRadius:999}}/>
+                  </div>
+                  <div style={{display:"flex",justifyContent:"space-between",fontSize:8,color:TH.dim}}><span>0mo</span><span>2mo</span><span>4mo</span></div>
+                </div>
+              </div>
+              <div style={{fontSize:10,color:TH.muted,lineHeight:1.5}}>{wealthData.liquidity.verdict}</div>
+            </div>
+          )}
+
+          {/* Empty state */}
+          {!wealthData&&!wealthLoading&&(
+            <div style={{textAlign:"center",padding:"40px 20px",color:TH.muted}}>
+              <div style={{fontSize:36,marginBottom:12}}>✦</div>
+              <div style={{fontSize:13,fontWeight:600,color:TH.text2,marginBottom:6}}>Ready to analyse your wealth</div>
+              <div style={{fontSize:11,lineHeight:1.6}}>Tap "Run Full Analysis" above for AI-powered insights on your allocation, tax efficiency, next moves, and liquidity risk.</div>
+            </div>
+          )}
+
         </div>)}
       </main>
 
