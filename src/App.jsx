@@ -716,7 +716,7 @@ export default function App(){
         </div>
 
         {/* ── MAIN CONTENT ── */}
-        <div style={{flex:1,overflowY:"auto",overflowX:"hidden",padding:"16px 16px 40px",minWidth:0,width:0}}>
+        <div style={{flex:1,overflowY:"auto",overflowX:"hidden",padding:"16px 14px 40px",minWidth:0,maxWidth:"calc(100vw - 180px)"}}>
 
           {/* ── OVERVIEW TAB ── */}
           {tab==="overview"&&(
@@ -737,8 +737,8 @@ export default function App(){
                 ))}
               </div>
 
-              {/* Main grid — 3 columns */}
-              <div style={{display:"grid",gridTemplateColumns:"minmax(0,1.2fr) minmax(0,1fr) minmax(0,0.85fr)",gap:14,alignItems:"start"}}>
+              {/* Main grid — 2 columns */}
+              <div style={{display:"grid",gridTemplateColumns:"minmax(0,1.2fr) minmax(0,1fr) minmax(0,0.85fr)",gap:12,alignItems:"start"}}>
 
                 {/* Column 1 — Net Worth + EF + Movers */}
                 <div style={{display:"flex",flexDirection:"column",gap:14}}>
@@ -909,7 +909,7 @@ export default function App(){
                   </div>
                 </div>
 
-                {/* Column 3 — Allocation donut + Debt + PVD */}
+                {/* Column 3 — Allocation donut + Debt + Quick links */}
                 <div style={{display:"flex",flexDirection:"column",gap:14}}>
 
                   {/* Allocation donut */}
