@@ -716,7 +716,7 @@ export default function App(){
         </div>
 
         {/* ── MAIN CONTENT ── */}
-        <div style={{flex:1,overflowY:"auto",padding:"24px 20px 40px",minWidth:0}}>
+        <div style={{flex:1,overflowY:"auto",overflowX:"hidden",padding:"24px 20px 40px",minWidth:0,width:0}}>
 
           {/* ── OVERVIEW TAB ── */}
           {tab==="overview"&&(
@@ -738,7 +738,7 @@ export default function App(){
               </div>
 
               {/* Main grid — 3 columns */}
-              <div style={{display:"grid",gridTemplateColumns:"1.2fr 1fr 0.9fr",gap:16,alignItems:"start"}}>
+              <div style={{display:"grid",gridTemplateColumns:"minmax(0,1.2fr) minmax(0,1fr) minmax(0,0.85fr)",gap:14,alignItems:"start"}}>
 
                 {/* Column 1 — Net Worth + EF + Movers */}
                 <div style={{display:"flex",flexDirection:"column",gap:14}}>
@@ -989,7 +989,7 @@ export default function App(){
 
           {/* ── INVEST TAB (desktop) ── */}
           {tab==="investments"&&(
-            <div style={{display:"grid",gridTemplateColumns:"1.4fr 1fr",gap:16,alignItems:"start"}}>
+            <div style={{display:"grid",gridTemplateColumns:"minmax(0,1.4fr) minmax(0,1fr)",gap:14,alignItems:"start"}}>
               <div style={{display:"flex",flexDirection:"column",gap:14}}>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
                   {[{label:"Personal",val:PERSONAL,pct:+(PERSONAL/TOTAL*100).toFixed(1),c:TH.accent},{label:"Retirement (PVD)",val:RETIRE,pct:+(RETIRE/TOTAL*100).toFixed(1),c:TH.accent2}].map((s,i)=>(
@@ -1064,7 +1064,7 @@ export default function App(){
 
           {/* ── SPENDING TAB (desktop) ── */}
           {tab==="spending"&&(
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,alignItems:"start"}}>
+            <div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) minmax(0,1fr)",gap:14,alignItems:"start"}}>
               <div style={{display:"flex",flexDirection:"column",gap:14}}>
                 <div style={dcStyle}>
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
@@ -1167,7 +1167,7 @@ export default function App(){
 
           {/* ── PLANNING TAB (desktop) ── */}
           {tab==="planning"&&(
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:16,alignItems:"start"}}>
+            <div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) minmax(0,1fr) minmax(0,1fr)",gap:14,alignItems:"start"}}>
               {/* Col 1 — Automation + Goals */}
               <div style={{display:"flex",flexDirection:"column",gap:14}}>
                 <div style={dcStyle}>
