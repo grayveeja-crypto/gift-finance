@@ -574,7 +574,13 @@ export default function App(){
   const EF_TARGET   = 143000;
   const EF_PCT      = Math.min(100,EF_BAL/EF_TARGET*100);
   const EF_MO_LEFT  = EF_BAL<EF_TARGET?Math.ceil((EF_TARGET-EF_BAL)/8000):0;
-  const SAVINGS_RATE= cashFlow.income>0?Math.round(((cashFlow.income-(CM.spent||0))/cashFlow.income)*100):0;
+  // Savings Rate = deliberate savings / gross income
+  // Includes: spending sheet savings categories + PVD employee 12% (deducted from gross)
+  const PVD_EMPLOYEE = 10648; // 12% of ฿88,733 gross — update when salary changes
+  const GROSS_INCOME  = 88733;
+  const SAVINGS_CATS_TXN = ["Emergency","Japan Fund","Retirement"];
+  const txnSavings = (CM.transactions||[]).filter(t=>SAVINGS_CATS_TXN.includes(t.cat)).reduce((s,t)=>s+t.amount,0);
+  const SAVINGS_RATE = Math.round((txnSavings + PVD_EMPLOYEE) / GROSS_INCOME * 100);
   const sparkHist   = history.map(h=>({v:h.portfolio-h.debt}));
 
   const spendGroups=()=>{
@@ -643,7 +649,7 @@ export default function App(){
     const dcStyle = { background:darkMode?"rgba(255,255,255,0.04)":"rgba(0,0,0,0.04)", border:`1px solid ${TH.border}`, borderRadius:16, padding:"16px 18px" };
 
     return(
-      <div style={{fontFamily:"'Inter','DM Sans',sans-serif",background:darkMode?"#080C18":"#F0F2F8",color:TH.text,minHeight:"100vh",display:"flex",WebkitFontSmoothing:"antialiased"}}>
+      <div style={{fontFamily:"'Inter','DM Sans',sans-serif",background:darkMode?"#080C18":"#F0F2F8",color:TH.text,width:"100%",height:"100vh",display:"flex",overflow:"hidden",WebkitFontSmoothing:"antialiased"}}>
         <style>{`
           @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;700&display=swap');
           @keyframes slideIn{from{transform:translateX(100%)}to{transform:translateX(0)}}
@@ -652,6 +658,7 @@ export default function App(){
           @keyframes bounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}
           @keyframes spin{to{transform:rotate(360deg)}}
           @keyframes shimmer{0%{background-position:-200% 0}100%{background-position:200% 0}}
+          html,body{width:100%;height:100%;margin:0;padding:0;overflow:hidden;}
           .dhrow{transition:background .12s;cursor:pointer;border-radius:10px;}
           .dhrow:hover{background:rgba(99,102,241,0.07)!important;}
           *{box-sizing:border-box;}
@@ -661,7 +668,7 @@ export default function App(){
         `}</style>
 
         {/* ── LEFT SIDEBAR ── */}
-        <div style={{width:180,flexShrink:0,background:darkMode?"#060912":"#FFFFFF",borderRight:`1px solid ${TH.border}`,display:"flex",flexDirection:"column",position:"sticky",top:0,height:"100vh",overflowY:"auto"}}>
+        <div style={{width:180,flexShrink:0,background:darkMode?"#060912":"#FFFFFF",borderRight:`1px solid ${TH.border}`,display:"flex",flexDirection:"column",height:"100vh",overflowY:"auto",flexShrink:0}}>
           {/* Logo + profile */}
           <div style={{padding:"16px 12px 12px",borderBottom:`1px solid ${TH.border}`}}>
             <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
@@ -716,7 +723,7 @@ export default function App(){
         </div>
 
         {/* ── MAIN CONTENT ── */}
-        <div style={{flex:1,overflowY:"auto",overflowX:"hidden",padding:"20px 24px 40px",flex:1,minWidth:0}}>
+        <div style={{flex:"1 1 0%",overflowY:"auto",overflowX:"hidden",padding:"20px 24px 40px",minWidth:0}}>
 
           {/* ── OVERVIEW TAB ── */}
           {tab==="overview"&&(
