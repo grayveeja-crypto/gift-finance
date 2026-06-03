@@ -736,6 +736,12 @@ export default function App(){
             <button onClick={()=>setDebugOpen(true)} style={{fontSize:10,fontWeight:700,padding:"3px 10px",borderRadius:999,cursor:"pointer",border:"none",color:isLive?"#22C55E":"#FBBF24",background:isLive?"rgba(34,197,94,0.1)":"rgba(251,191,36,0.1)",width:"100%",textAlign:"left"}}>
               {isLive?"● Live data":"◌ Cached data"}
             </button>
+            {/* Emergency Fund warning badge */}
+            {(EF_BAL/35750)<1&&(
+              <button onClick={()=>setTab("planning")} style={{fontSize:10,fontWeight:700,padding:"3px 10px",borderRadius:999,cursor:"pointer",border:"none",color:"#F87171",background:"rgba(248,113,113,0.1)",width:"100%",textAlign:"left",marginTop:4}}>
+                ⚠️ EF {(EF_BAL/35750).toFixed(1)}mo — Priority 1
+              </button>
+            )}
           </div>
 
           {/* Nav */}
@@ -1147,6 +1153,34 @@ export default function App(){
                   </div>
                   <div style={{height:6,background:darkMode?"rgba(255,255,255,0.07)":"rgba(0,0,0,0.07)",borderRadius:999,overflow:"hidden",marginBottom:12}}>
                     <div style={{height:"100%",width:`${Math.min(CM.spent/(CM.budget||70400)*100,100)}%`,background:CM.spent>(CM.budget||70400)?"linear-gradient(90deg,#F87171,#DC2626)":"linear-gradient(90deg,#6366F1,#38BDF8)",borderRadius:999}}/>
+                  </div>
+                  {/* Month-over-month trend bars */}
+                  <div style={{marginBottom:12}}>
+                    <div style={{fontSize:9,fontWeight:700,color:"#6B7280",textTransform:"uppercase",letterSpacing:".07em",marginBottom:6}}>Monthly Trend</div>
+                    <div style={{display:"flex",alignItems:"flex-end",gap:4,height:40}}>
+                      {spendingMonths.slice(-6).map((sm,i)=>{
+                        const maxSpent=Math.max(...spendingMonths.slice(-6).map(s=>s.spent||0));
+                        const pct=maxSpent>0?((sm.spent||0)/maxSpent*100):0;
+                        const isSelected=spendingMonths.indexOf(sm)===selMonth;
+                        const isOver=(sm.spent||0)>(sm.budget||70400);
+                        return(
+                          <div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:2,cursor:"pointer"}}
+                            onClick={()=>setSelMonth(spendingMonths.indexOf(sm))}>
+                            <div style={{fontSize:7,color:isSelected?"#F8FAFC":"#6B7280",fontWeight:isSelected?700:400,fontFamily:"monospace"}}>
+                              {Math.round((sm.spent||0)/1000)}k
+                            </div>
+                            <div style={{width:"100%",height:28,display:"flex",alignItems:"flex-end"}}>
+                              <div style={{width:"100%",height:`${pct}%`,minHeight:3,borderRadius:"3px 3px 0 0",
+                                background:isSelected?(isOver?"#F87171":"#6366F1"):(isOver?"rgba(248,113,113,0.4)":"rgba(99,102,241,0.3)"),
+                                transition:"all .2s"}}/>
+                            </div>
+                            <div style={{fontSize:7,color:isSelected?"#F8FAFC":"#6B7280",fontWeight:isSelected?700:400}}>
+                              {sm.m.split(" ")[0]}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
                   {/* Donut + categories */}
                   <div style={{display:"flex",alignItems:"flex-start",gap:16}}>
