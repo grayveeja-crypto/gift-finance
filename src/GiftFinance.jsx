@@ -701,7 +701,7 @@ export default function App(){
     const dcStyle = { background:darkMode?"rgba(255,255,255,0.04)":"rgba(0,0,0,0.04)", border:`1px solid ${TH.border}`, borderRadius:16, padding:"16px 18px" };
 
     return(
-      <div style={{fontFamily:"'Inter','DM Sans',sans-serif",background:darkMode?"#080C18":"#F0F2F8",color:TH.text,width:"100%",height:"100vh",display:"flex",overflowX:"hidden",overflowY:"hidden",WebkitFontSmoothing:"antialiased"}}>
+      <div style={{fontFamily:"'Inter','DM Sans',sans-serif",background:darkMode?"#080C18":"#F0F2F8",color:TH.text,width:"100%",minHeight:"100vh",display:"flex",alignItems:"flex-start",WebkitFontSmoothing:"antialiased"}}>
         <style>{`
           @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;700&display=swap');
           @keyframes slideIn{from{transform:translateX(100%)}to{transform:translateX(0)}}
@@ -710,7 +710,7 @@ export default function App(){
           @keyframes bounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}
           @keyframes spin{to{transform:rotate(360deg)}}
           @keyframes shimmer{0%{background-position:-200% 0}100%{background-position:200% 0}}
-          html,body{width:100%;height:100%;margin:0;padding:0;overflow:hidden;}
+          html,body{width:100%;margin:0;padding:0;}
           .dhrow{transition:background .12s;cursor:pointer;border-radius:10px;}
           .dhrow:hover{background:rgba(99,102,241,0.07)!important;}
           *{box-sizing:border-box;}
@@ -720,7 +720,7 @@ export default function App(){
         `}</style>
 
         {/* ── LEFT SIDEBAR ── */}
-        <div style={{width:180,flexShrink:0,background:darkMode?"#060912":"#FFFFFF",borderRight:`1px solid ${TH.border}`,display:"flex",flexDirection:"column",height:"100vh",overflowY:"auto",flexShrink:0}}>
+        <div style={{width:180,flexShrink:0,background:darkMode?"#060912":"#FFFFFF",borderRight:`1px solid ${TH.border}`,display:"flex",flexDirection:"column",position:"sticky",top:0,height:"100vh",overflowY:"auto"}}>
           {/* Logo + profile */}
           <div style={{padding:"16px 12px 12px",borderBottom:`1px solid ${TH.border}`}}>
             <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
@@ -776,7 +776,7 @@ export default function App(){
         </div>
 
         {/* ── MAIN CONTENT ── */}
-        <div style={{flex:1,minHeight:0,overflowY:"auto",overflowX:"hidden",padding:"20px 24px 40px"}}>
+        <div style={{flex:1,minWidth:0,padding:"20px 24px 40px"}}>
 
           {/* ── OVERVIEW TAB ── */}
           {tab==="overview"&&(
