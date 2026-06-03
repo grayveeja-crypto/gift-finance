@@ -1369,7 +1369,6 @@ export default function App(){
               </div>
             </div>
           )}
-        </div>
 
           {/* ── WEALTH TAB (desktop) ── */}
           {tab==="wealth"&&(
@@ -1542,6 +1541,7 @@ export default function App(){
               </div>
             </div>
           )}
+        </div>
 
         {/* Overlays work on desktop too */}
         <ProfilePanel open={profOpen} onClose={()=>setProfOpen(false)} photo={profilePhoto} onPhotoChange={p=>{setProfilePhoto(p);try{localStorage.setItem('gf_photo',p);}catch{}}} name="Gift" darkMode={darkMode} setDarkMode={setDarkMode}/>
