@@ -737,11 +737,9 @@ export default function App(){
               {isLive?"● Live data":"◌ Cached data"}
             </button>
             {/* Emergency Fund warning badge */}
-            {(EF_BAL/35750)<1&&(
-              <button onClick={()=>setTab("planning")} style={{fontSize:10,fontWeight:700,padding:"3px 10px",borderRadius:999,cursor:"pointer",border:"none",color:"#F87171",background:"rgba(248,113,113,0.1)",width:"100%",textAlign:"left",marginTop:4}}>
-                ⚠️ EF {(EF_BAL/35750).toFixed(1)}mo — Priority 1
-              </button>
-            )}
+            <button onClick={()=>setTab("planning")} style={{fontSize:10,fontWeight:700,padding:"3px 10px",borderRadius:999,cursor:"pointer",border:"none",color:"#F87171",background:"rgba(248,113,113,0.1)",width:"100%",textAlign:"left",marginTop:4}}>
+              ⚠️ EF — Priority 1
+            </button>
           </div>
 
           {/* Nav */}
