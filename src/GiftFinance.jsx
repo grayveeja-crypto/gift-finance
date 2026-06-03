@@ -1611,6 +1611,7 @@ export default function App(){
           <div style={{width:30,height:30,borderRadius:9,background:"linear-gradient(135deg,#6366F1,#38BDF8)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:900,color:"white",flexShrink:0}}>G</div>
           <span style={{fontWeight:800,fontSize:15,letterSpacing:"-.3px"}}>Gift Finance</span>
           <button onClick={()=>setDebugOpen(true)} style={{fontSize:9,fontWeight:700,padding:"2px 8px",borderRadius:999,cursor:"pointer",border:"none",color:isLive?"#22C55E":"#FBBF24",background:isLive?"rgba(34,197,94,0.12)":"rgba(251,191,36,0.12)"}}>{isLive?"● Live":"◌ Cache"}</button>
+          {(EF_BAL/35750)<1&&<button onClick={()=>setTab("planning")} style={{fontSize:9,fontWeight:700,padding:"2px 8px",borderRadius:999,cursor:"pointer",border:"none",color:"#F87171",background:"rgba(248,113,113,0.1)",flexShrink:0}}>⚠️ {(EF_BAL/35750).toFixed(1)}mo EF</button>}
         </div>
         <div style={{display:"flex",gap:6,alignItems:"center"}}>
           <button onClick={()=>fetchAll(true)} style={{background:TH.surf,border:`1px solid ${TH.border}`,color:refreshing?TH.accent:TH.inactive,borderRadius:8,width:30,height:30,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer"}}><RefreshCw size={13} style={{animation:refreshing?"spin 1s linear infinite":"none"}}/></button>
@@ -1970,6 +1971,33 @@ export default function App(){
             <div style={{display:"flex",justifyContent:"space-between",fontSize:9,color:TH.muted,marginTop:5}}><span>฿0</span><span>{fmt(CM.budget||70400)}</span></div>
           </div>
 
+          <div style={cardStyle}>
+            <div style={{fontSize:11,fontWeight:700,marginBottom:8}}>Monthly Trend</div>
+            <div style={{display:"flex",alignItems:"flex-end",gap:4,height:44}}>
+              {spendingMonths.slice(-6).map((sm,i)=>{
+                const maxSpent=Math.max(...spendingMonths.slice(-6).map(s=>s.spent||0));
+                const pct=maxSpent>0?((sm.spent||0)/maxSpent*100):0;
+                const isSelected=spendingMonths.indexOf(sm)===selMonth;
+                const isOver=(sm.spent||0)>(sm.budget||70400);
+                return(
+                  <div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:2,cursor:"pointer"}}
+                    onClick={()=>setSelMonth(spendingMonths.indexOf(sm))}>
+                    <div style={{fontSize:7,color:isSelected?"#F8FAFC":"#6B7280",fontWeight:isSelected?700:400,fontFamily:"monospace"}}>
+                      {Math.round((sm.spent||0)/1000)}k
+                    </div>
+                    <div style={{width:"100%",height:28,display:"flex",alignItems:"flex-end"}}>
+                      <div style={{width:"100%",height:`${pct}%`,minHeight:3,borderRadius:"3px 3px 0 0",
+                        background:isSelected?(isOver?"#F87171":"#6366F1"):(isOver?"rgba(248,113,113,0.4)":"rgba(99,102,241,0.3)"),
+                        transition:"all .2s"}}/>
+                    </div>
+                    <div style={{fontSize:7,color:isSelected?"#F8FAFC":"#6B7280",fontWeight:isSelected?700:400}}>
+                      {sm.m.split(" ")[0]}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
           <div style={cardStyle}>
             <div style={{fontSize:12,fontWeight:700,marginBottom:14}}>By Category</div>
             {CAT_DATA.length===0
