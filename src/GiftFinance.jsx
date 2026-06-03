@@ -1373,7 +1373,7 @@ export default function App(){
 
           {/* ── WEALTH TAB (desktop) ── */}
           {tab==="wealth"&&(
-            <div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) minmax(0,1fr)",gap:16,alignItems:"start"}}>
+            <div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) minmax(0,1fr)",gap:16,alignItems:"start",paddingBottom:40}}>
               {/* Left — Run + Score + Allocation + Next Move */}
               <div style={{display:"flex",flexDirection:"column",gap:14}}>
                 {/* Run Analysis */}
@@ -2424,7 +2424,7 @@ export default function App(){
           {id:"investments", label:"Invest",Icon:BarChart2},
           {id:"add",         label:"",      Icon:Plus,special:true},
           {id:"spending",    label:"Spend", Icon:CreditCard},
-          {id:"planning",    label:"Plan",  Icon:Target},
+          {id:"wealth",      label:"Wealth",Icon:Sparkles},
         ].map(n=>(
           <button key={n.id} onClick={()=>!n.special&&setTab(n.id)}
             style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end",gap:3,background:"transparent",border:"none",cursor:"pointer",color:tab===n.id?"#818CF8":TH.inactive,transition:"color .15s",paddingTop:n.special?0:10,paddingBottom:0}}>
