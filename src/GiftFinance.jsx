@@ -776,7 +776,7 @@ export default function App(){
         </div>
 
         {/* ── MAIN CONTENT ── */}
-        <div style={{flex:"1 1 0%",overflowY:"scroll",overflowX:"hidden",padding:"20px 24px 40px",minWidth:0,height:"100vh"}}>
+        <div style={{flex:1,minHeight:0,overflowY:"auto",overflowX:"hidden",padding:"20px 24px 40px"}}>
 
           {/* ── OVERVIEW TAB ── */}
           {tab==="overview"&&(
