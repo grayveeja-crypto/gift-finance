@@ -737,9 +737,11 @@ export default function App(){
               {isLive?"● Live data":"◌ Cached data"}
             </button>
             {/* Emergency Fund warning badge */}
-            <button onClick={()=>setTab("planning")} style={{fontSize:10,fontWeight:700,padding:"3px 10px",borderRadius:999,cursor:"pointer",border:"none",color:"#F87171",background:"rgba(248,113,113,0.1)",width:"100%",textAlign:"left",marginTop:4}}>
-              ⚠️ EF — Priority 1
-            </button>
+            {(EF_BAL/35750)<1&&(
+              <button onClick={()=>setTab("planning")} style={{fontSize:10,fontWeight:700,padding:"3px 10px",borderRadius:999,cursor:"pointer",border:"none",color:"#F87171",background:"rgba(248,113,113,0.1)",width:"100%",textAlign:"left",marginTop:4}}>
+                ⚠️ EF {(EF_BAL/35750).toFixed(1)}mo — Priority 1
+              </button>
+            )}
           </div>
 
           {/* Nav */}
@@ -1277,6 +1279,34 @@ export default function App(){
                   </div>
                   <div style={{height:5,background:darkMode?"rgba(255,255,255,0.07)":"rgba(0,0,0,0.07)",borderRadius:999,overflow:"hidden"}}>
                     <div style={{height:"100%",width:`${Math.min(SAVINGS_RATE,100)}%`,background:SAVINGS_RATE>=35?TH.green:TH.red,borderRadius:999}}/>
+                  </div>
+                </div>
+                {/* Monthly Spend Trend */}
+                <div style={dcStyle}>
+                  <div style={{fontSize:9,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".07em",marginBottom:10}}>Monthly Spend Trend</div>
+                  <div style={{display:"flex",alignItems:"flex-end",gap:5,height:60}}>
+                    {spendingMonths.slice(-6).map((sm,i)=>{
+                      const maxSpent=Math.max(...spendingMonths.slice(-6).map(s=>s.spent||0));
+                      const pct=maxSpent>0?((sm.spent||0)/maxSpent*100):0;
+                      const isSelected=spendingMonths.indexOf(sm)===selMonth;
+                      const isOver=(sm.spent||0)>(sm.budget||70400);
+                      return(
+                        <div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:3,cursor:"pointer"}}
+                          onClick={()=>setSelMonth(spendingMonths.indexOf(sm))}>
+                          <div style={{fontSize:8,color:isSelected?TH.text:TH.muted,fontWeight:isSelected?700:400,fontFamily:TH.mono}}>
+                            {Math.round((sm.spent||0)/1000)}k
+                          </div>
+                          <div style={{width:"100%",height:36,display:"flex",alignItems:"flex-end"}}>
+                            <div style={{width:"100%",height:`${Math.max(pct,5)}%`,borderRadius:"3px 3px 0 0",
+                              background:isSelected?(isOver?TH.red:TH.accent):(isOver?"rgba(248,113,113,0.35)":"rgba(99,102,241,0.25)"),
+                              transition:"all .2s"}}/>
+                          </div>
+                          <div style={{fontSize:8,color:isSelected?TH.text:TH.muted,fontWeight:isSelected?700:400}}>
+                            {sm.m.split(" ")[0]}
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               </div>
