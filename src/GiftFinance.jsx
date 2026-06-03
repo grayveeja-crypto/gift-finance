@@ -701,7 +701,7 @@ export default function App(){
     const dcStyle = { background:darkMode?"rgba(255,255,255,0.04)":"rgba(0,0,0,0.04)", border:`1px solid ${TH.border}`, borderRadius:16, padding:"16px 18px" };
 
     return(
-      <div style={{fontFamily:"'Inter','DM Sans',sans-serif",background:darkMode?"#080C18":"#F0F2F8",color:TH.text,width:"100%",height:"100vh",display:"flex",overflow:"hidden",WebkitFontSmoothing:"antialiased"}}>
+      <div style={{fontFamily:"'Inter','DM Sans',sans-serif",background:darkMode?"#080C18":"#F0F2F8",color:TH.text,width:"100%",height:"100vh",display:"flex",overflowX:"hidden",overflowY:"hidden",WebkitFontSmoothing:"antialiased"}}>
         <style>{`
           @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;700&display=swap');
           @keyframes slideIn{from{transform:translateX(100%)}to{transform:translateX(0)}}
@@ -776,7 +776,7 @@ export default function App(){
         </div>
 
         {/* ── MAIN CONTENT ── */}
-        <div style={{flex:"1 1 0%",overflowY:"auto",overflowX:"hidden",padding:"20px 24px 40px",minWidth:0}}>
+        <div style={{flex:"1 1 0%",overflowY:"scroll",overflowX:"hidden",padding:"20px 24px 40px",minWidth:0,height:"100vh"}}>
 
           {/* ── OVERVIEW TAB ── */}
           {tab==="overview"&&(
