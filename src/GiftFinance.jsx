@@ -1373,7 +1373,7 @@ export default function App(){
 
           {/* ── WEALTH TAB (desktop) ── */}
           {tab==="wealth"&&(
-            <div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) minmax(0,1fr)",gap:16,alignItems:"start",paddingBottom:40}}>
+            <div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) minmax(0,1fr)",gap:16,alignItems:"start",paddingBottom:60}}>
               {/* Left — Run + Score + Allocation + Next Move */}
               <div style={{display:"flex",flexDirection:"column",gap:14}}>
                 {/* Run Analysis */}
@@ -1600,7 +1600,7 @@ export default function App(){
         ))}
       </nav>
 
-      <main className="tc" style={{padding:"12px 12px 90px",overflowX:"hidden"}} className="main-content">
+      <main className="tc main-content" style={{padding:"12px 12px 90px",overflowX:"hidden",overflowY:"auto"}}>
 
         {/* ══════════════════════════════════════════════════════
             OVERVIEW — Session 1 redesign
