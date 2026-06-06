@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Home, BarChart2, CreditCard, Target, Plus, RefreshCw, ChevronRight, X, Send, RotateCcw, Search, TrendingUp, TrendingDown, Shield, Zap, Sparkles, AlertTriangle, ArrowRight } from "lucide-react";
-import { AreaChart, Area, ResponsiveContainer, PieChart, Pie, Cell, Tooltip } from "recharts";
+import { AreaChart, Area, ResponsiveContainer, PieChart, Pie, Cell, Tooltip, XAxis } from "recharts";
 
 const API_PORT  = "https://script.google.com/macros/s/AKfycbwO0C0-0U8WonDCYuvOxjGa-kxCWmO_bMhwbJ3pNiwsiXIz-S_-4cxjDwoIRY7uqDsu/exec";
 const API_SPEND = "https://script.google.com/macros/s/AKfycbx63wYg7kuFh9zZAs4V6FOfV5XxwPgmRB9v9-G8pobCxGn27NXaJXZhxDsMKvcLDcbt/exec";
@@ -91,7 +91,7 @@ const pn  = v => { const n=parseFloat(String(v||0).replace(/[,฿%\s]/g,"")); re
 const fmt = v => `฿${Math.round(v).toLocaleString()}`;
 const fd  = (v,d=2) => Number(v).toFixed(d);
 const sgn = v => v>=0?"+":"";
-const clr = v => v>=0?T.green:T.red;
+const clr = (v, th=T) => v>=0?th.green:th.red;
 
 // Strip emojis + leading/trailing space from category names
 function cleanCat(s){
@@ -333,81 +333,83 @@ function Counter({to,dur=1000,prefix="฿"}){
 // ─── PANELS ──────────────────────────────────────────────────────────────────
 function ProfilePanel({open,onClose,photo,onPhotoChange,name,darkMode,setDarkMode}){
   if(!open) return null;
+  const TH = darkMode ? T : LIGHT_T;
   return(
     <div style={{position:"fixed",inset:0,zIndex:300}}>
       <div onClick={onClose} style={{position:"absolute",inset:0,background:"rgba(0,0,0,0.6)",backdropFilter:"blur(6px)"}}/>
-      <div style={{position:"absolute",top:0,right:0,width:280,height:"100%",background:"#0A0E1A",borderLeft:`1px solid ${T.border}`,padding:24,animation:"slideIn .25s cubic-bezier(.16,1,.3,1)"}}>
-        <button onClick={onClose} style={{position:"absolute",top:18,right:18,background:T.surf,border:`1px solid ${T.border}`,borderRadius:8,width:30,height:30,color:T.muted,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}><X size={15}/></button>
+      <div style={{position:"absolute",top:0,right:0,width:280,height:"100%",background:darkMode?"#0A0E1A":"#FFFFFF",borderLeft:`1px solid ${TH.border}`,padding:24,animation:"slideIn .25s cubic-bezier(.16,1,.3,1)"}}>
+        <button onClick={onClose} style={{position:"absolute",top:18,right:18,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:8,width:30,height:30,color:TH.muted,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}><X size={15}/></button>
         <div style={{textAlign:"center",marginBottom:24,marginTop:16}}>
           <label style={{cursor:"pointer",display:"block"}}>
-            <div style={{width:80,height:80,borderRadius:"50%",margin:"0 auto 10px",overflow:"hidden",border:`2px solid ${T.accent}`,display:"flex",alignItems:"center",justifyContent:"center",background:"linear-gradient(135deg,#6366F1,#F472B6)",fontSize:28,color:"white"}}>
+            <div style={{width:80,height:80,borderRadius:"50%",margin:"0 auto 10px",overflow:"hidden",border:`2px solid ${TH.accent}`,display:"flex",alignItems:"center",justifyContent:"center",background:"linear-gradient(135deg,#6366F1,#F472B6)",fontSize:28,color:"white"}}>
               {photo?<img src={photo} style={{width:"100%",height:"100%",objectFit:"cover"}} alt="profile"/>:"G"}
             </div>
-            <div style={{fontSize:11,color:T.accent,fontWeight:600}}>Tap to change photo</div>
+            <div style={{fontSize:11,color:TH.accent,fontWeight:600}}>Tap to change photo</div>
             <input type="file" accept="image/*" style={{display:"none"}} onChange={e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>onPhotoChange(ev.target.result);r.readAsDataURL(f);}}/>
           </label>
-          <div style={{fontSize:16,fontWeight:800,color:T.text,marginTop:10}}>{name}</div>
-          <div style={{fontSize:11,color:T.muted}}>Personal Finance Dashboard</div>
+          <div style={{fontSize:16,fontWeight:800,color:TH.text,marginTop:10}}>{name}</div>
+          <div style={{fontSize:11,color:TH.muted}}>Personal Finance Dashboard</div>
         </div>
         {[{label:"Currency",val:"฿ Thai Baht"},{label:"Retirement target",val:"Age 60 · 2042"},{label:"Data source",val:"Google Sheets"}].map((r,i)=>(
-          <div key={i} style={{display:"flex",justifyContent:"space-between",padding:"11px 0",borderBottom:`1px solid ${T.border}`}}>
-            <span style={{fontSize:12,color:T.muted}}>{r.label}</span>
-            <span style={{fontSize:12,fontWeight:600,color:T.text2}}>{r.val}</span>
+          <div key={i} style={{display:"flex",justifyContent:"space-between",padding:"11px 0",borderBottom:`1px solid ${TH.border}`}}>
+            <span style={{fontSize:12,color:TH.muted}}>{r.label}</span>
+            <span style={{fontSize:12,fontWeight:600,color:TH.text2}}>{r.val}</span>
           </div>
         ))}
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"11px 0",borderBottom:`1px solid ${T.border}`}}>
-          <span style={{fontSize:12,color:T.muted}}>Appearance</span>
-          <button onClick={()=>setDarkMode(d=>!d)} style={{display:"flex",alignItems:"center",gap:6,background:"rgba(99,102,241,0.1)",border:"1px solid rgba(99,102,241,0.25)",borderRadius:20,padding:"4px 12px",cursor:"pointer",fontSize:11,fontWeight:600,color:T.accent}}><span style={{fontSize:13}}>{darkMode?"☀️":"🌙"}</span>{darkMode?"Light":"Dark"}</button>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"11px 0",borderBottom:`1px solid ${TH.border}`}}>
+          <span style={{fontSize:12,color:TH.muted}}>Appearance</span>
+          <button onClick={()=>setDarkMode(d=>!d)} style={{display:"flex",alignItems:"center",gap:6,background:"rgba(99,102,241,0.1)",border:"1px solid rgba(99,102,241,0.25)",borderRadius:20,padding:"4px 12px",cursor:"pointer",fontSize:11,fontWeight:600,color:TH.accent}}><span style={{fontSize:13}}>{darkMode?"☀️":"🌙"}</span>{darkMode?"Light":"Dark"}</button>
         </div>
       </div>
     </div>
   );
 }
 
-function FundPanel({fund,onClose}){
+function FundPanel({fund,onClose,darkMode}){
   if(!fund) return null;
+  const TH = darkMode ? T : LIGHT_T;
   const gl=fund.value-fund.cost;
   const mini=Array.from({length:10},(_,i)=>({v:fund.cost*(0.93+i*.009+(Math.sin(i*1.9)*.008))}));
   mini[9]={v:fund.value};
   return(
     <div style={{position:"fixed",inset:0,zIndex:250,display:"flex",justifyContent:"flex-end"}}>
       <div onClick={onClose} style={{position:"absolute",inset:0,background:"rgba(0,0,0,0.55)",backdropFilter:"blur(6px)"}}/>
-      <div style={{position:"relative",width:300,height:"100%",background:"#0A0E1A",borderLeft:`1px solid ${T.border}`,padding:22,overflowY:"auto",animation:"slideIn .28s cubic-bezier(.16,1,.3,1)"}}>
-        <button onClick={onClose} style={{position:"absolute",top:18,right:18,background:T.surf,border:`1px solid ${T.border}`,borderRadius:8,width:30,height:30,color:T.muted,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}><X size={15}/></button>
+      <div style={{position:"relative",width:300,height:"100%",background:darkMode?"#0A0E1A":"#FFFFFF",borderLeft:`1px solid ${TH.border}`,padding:22,overflowY:"auto",animation:"slideIn .28s cubic-bezier(.16,1,.3,1)"}}>
+        <button onClick={onClose} style={{position:"absolute",top:18,right:18,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:8,width:30,height:30,color:TH.muted,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}><X size={15}/></button>
         <div style={{marginBottom:20,marginTop:4}}>
-          <div style={{fontSize:9,color:T.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:".07em",marginBottom:4}}>{fund.cls} · {fund.type}</div>
-          <div style={{fontSize:18,fontWeight:800,color:T.text,letterSpacing:"-.5px"}}>{fund.code}</div>
-          <div style={{fontSize:11,color:T.muted,marginTop:2}}>{fund.name}</div>
+          <div style={{fontSize:9,color:TH.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:".07em",marginBottom:4}}>{fund.cls} · {fund.type}</div>
+          <div style={{fontSize:18,fontWeight:800,color:TH.text,letterSpacing:"-.5px"}}>{fund.code}</div>
+          <div style={{fontSize:11,color:TH.muted,marginTop:2}}>{fund.name}</div>
         </div>
         <div style={{background:fund.dailyPct>=0?"rgba(74,222,128,0.07)":"rgba(248,113,113,0.07)",border:`1px solid ${fund.dailyPct>=0?"rgba(74,222,128,0.18)":"rgba(248,113,113,0.18)"}`,borderRadius:14,padding:14,marginBottom:14}}>
-          <div style={{fontSize:9,color:T.muted,marginBottom:3,fontWeight:600}}>CURRENT VALUE</div>
-          <div style={{fontSize:26,fontWeight:900,color:T.text,letterSpacing:"-1px",fontFamily:T.mono}}>{fmt(fund.value)}</div>
-          <div style={{height:60,marginTop:8}}><Spark data={mini} color={fund.dailyPct>=0?T.green:T.red} h={60}/></div>
+          <div style={{fontSize:9,color:TH.muted,marginBottom:3,fontWeight:600}}>CURRENT VALUE</div>
+          <div style={{fontSize:26,fontWeight:900,color:TH.text,letterSpacing:"-1px",fontFamily:TH.mono}}>{fmt(fund.value)}</div>
+          <div style={{height:60,marginTop:8}}><Spark data={mini} color={fund.dailyPct>=0?TH.green:TH.red} h={60}/></div>
         </div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:14}}>
           {[
-            {l:"Daily",       v:`${sgn(fund.dailyPct)}${fd(fund.dailyPct)}%`, c:clr(fund.dailyPct)},
-            {l:"Total Return",v:`${sgn(fund.totalPct)}${fd(fund.totalPct)}%`, c:clr(fund.totalPct)},
-            {l:"Gain / Loss", v:`${sgn(gl)}${fmt(gl)}`,                       c:clr(gl)},
-            {l:"Cost Basis",  v:fmt(fund.cost),                               c:T.text2},
-            {l:"NAV",         v:`฿${fd(fund.nav,4)}`,                         c:T.text2},
-            {l:"Units",       v:fd(fund.units,2),                             c:T.text2},
+            {l:"Daily",       v:`${sgn(fund.dailyPct)}${fd(fund.dailyPct)}%`, c:clr(fund.dailyPct,TH)},
+            {l:"Total Return",v:`${sgn(fund.totalPct)}${fd(fund.totalPct)}%`, c:clr(fund.totalPct,TH)},
+            {l:"Gain / Loss", v:`${sgn(gl)}${fmt(gl)}`,                       c:clr(gl,TH)},
+            {l:"Cost Basis",  v:fmt(fund.cost),                               c:TH.text2},
+            {l:"NAV",         v:`฿${fd(fund.nav,4)}`,                         c:TH.text2},
+            {l:"Units",       v:fd(fund.units,2),                             c:TH.text2},
           ].map((s,i)=>(
-            <div key={i} style={{background:"rgba(255,255,255,0.03)",border:`1px solid ${T.border}`,borderRadius:12,padding:"10px 12px"}}>
-              <div style={{fontSize:9,color:T.muted,marginBottom:3,fontWeight:600,textTransform:"uppercase",letterSpacing:".05em"}}>{s.l}</div>
-              <div style={{fontSize:13,fontWeight:700,color:s.c,fontFamily:T.mono}}>{s.v}</div>
+            <div key={i} style={{background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"10px 12px"}}>
+              <div style={{fontSize:9,color:TH.muted,marginBottom:3,fontWeight:600,textTransform:"uppercase",letterSpacing:".05em"}}>{s.l}</div>
+              <div style={{fontSize:13,fontWeight:700,color:s.c,fontFamily:TH.mono}}>{s.v}</div>
             </div>
           ))}
         </div>
         {fund.navPrev>0&&(
-          <div style={{background:"rgba(255,255,255,0.03)",border:`1px solid ${T.border}`,borderRadius:12,padding:"10px 12px",marginBottom:14,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-            <div><div style={{fontSize:9,color:T.muted,marginBottom:2,fontWeight:600}}>PREV NAV</div><div style={{fontSize:12,fontWeight:700,color:T.text2,fontFamily:T.mono}}>฿{fd(fund.navPrev,4)}</div></div>
-            <div style={{textAlign:"right"}}><div style={{fontSize:9,color:T.muted,marginBottom:2,fontWeight:600}}>CHANGE</div><div style={{fontSize:12,fontWeight:700,color:clr(fund.dailyPct),fontFamily:T.mono}}>{sgn(fund.dailyPct)}{fd(fund.dailyPct)}%</div></div>
+          <div style={{background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"10px 12px",marginBottom:14,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <div><div style={{fontSize:9,color:TH.muted,marginBottom:2,fontWeight:600}}>PREV NAV</div><div style={{fontSize:12,fontWeight:700,color:TH.text2,fontFamily:TH.mono}}>฿{fd(fund.navPrev,4)}</div></div>
+            <div style={{textAlign:"right"}}><div style={{fontSize:9,color:TH.muted,marginBottom:2,fontWeight:600}}>CHANGE</div><div style={{fontSize:12,fontWeight:700,color:clr(fund.dailyPct,TH),fontFamily:TH.mono}}>{sgn(fund.dailyPct)}{fd(fund.dailyPct)}%</div></div>
           </div>
         )}
         <div style={{display:"flex",gap:8}}>
           <button style={{flex:1,padding:11,borderRadius:12,fontWeight:700,fontSize:12,background:"linear-gradient(135deg,#22C55E,#16A34A)",border:"none",color:"white",cursor:"pointer"}}>Buy More</button>
-          <button style={{flex:1,padding:11,borderRadius:12,fontWeight:700,fontSize:12,background:"transparent",border:`1px solid ${T.border}`,color:T.muted,cursor:"pointer"}}>Sell</button>
+          <button style={{flex:1,padding:11,borderRadius:12,fontWeight:700,fontSize:12,background:"transparent",border:`1px solid ${TH.border}`,color:TH.muted,cursor:"pointer"}}>Sell</button>
         </div>
       </div>
     </div>
@@ -415,7 +417,8 @@ function FundPanel({fund,onClose}){
 }
 
 const QUICK=["How is my portfolio doing?","Should I rebalance now?","Am I on track for retirement?","Review my May spending"];
-function AIPanel({open,onClose,holdings,debts,spendingMonths}){
+function AIPanel({open,onClose,holdings,debts,spendingMonths,darkMode}){
+  const TH = darkMode ? T : LIGHT_T;
   const [msgs,setMsgs]=useState([{r:"a",t:"Hi Gift! I have your live portfolio data. Ask me anything 📊"}]);
   const [inp,setInp]=useState(""); const [busy,setBusy]=useState(false); const end=useRef();
   useEffect(()=>{ end.current?.scrollIntoView({behavior:"smooth"}); },[msgs,busy]);
@@ -435,26 +438,26 @@ function AIPanel({open,onClose,holdings,debts,spendingMonths}){
   if(!open) return null;
   return(
     <div style={{position:"fixed",inset:0,zIndex:300,display:"flex",alignItems:"flex-end",justifyContent:"flex-end",padding:12,pointerEvents:"none"}}>
-      <div style={{width:310,height:490,background:"#0A0E1A",border:`1px solid ${T.border}`,borderRadius:22,display:"flex",flexDirection:"column",boxShadow:"0 32px 80px rgba(0,0,0,0.5)",overflow:"hidden",pointerEvents:"auto",animation:"slideUp .25s cubic-bezier(.16,1,.3,1)"}}>
-        <div style={{padding:"11px 14px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:8}}>
+      <div style={{width:310,height:490,background:darkMode?"#0A0E1A":"#FFFFFF",border:`1px solid ${TH.border}`,borderRadius:22,display:"flex",flexDirection:"column",boxShadow:"0 32px 80px rgba(0,0,0,0.3)",overflow:"hidden",pointerEvents:"auto",animation:"slideUp .25s cubic-bezier(.16,1,.3,1)"}}>
+        <div style={{padding:"11px 14px",borderBottom:`1px solid ${TH.border}`,display:"flex",alignItems:"center",gap:8}}>
           <div style={{width:26,height:26,borderRadius:8,background:"linear-gradient(135deg,#6366F1,#38BDF8)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11}}>✦</div>
-          <div style={{flex:1}}><div style={{fontSize:12,fontWeight:700,color:T.text}}>AI Advisor</div><div style={{fontSize:9,color:T.green}}>● Live portfolio data</div></div>
-          <button onClick={()=>setMsgs([msgs[0]])} style={{background:"transparent",border:"none",color:T.muted,cursor:"pointer"}}><RotateCcw size={13}/></button>
-          <button onClick={onClose} style={{background:"transparent",border:"none",color:T.muted,cursor:"pointer"}}><X size={16}/></button>
+          <div style={{flex:1}}><div style={{fontSize:12,fontWeight:700,color:TH.text}}>AI Advisor</div><div style={{fontSize:9,color:TH.green}}>● Live portfolio data</div></div>
+          <button onClick={()=>setMsgs([msgs[0]])} style={{background:"transparent",border:"none",color:TH.muted,cursor:"pointer"}}><RotateCcw size={13}/></button>
+          <button onClick={onClose} style={{background:"transparent",border:"none",color:TH.muted,cursor:"pointer"}}><X size={16}/></button>
         </div>
         <div style={{flex:1,overflowY:"auto",padding:"10px 12px",display:"flex",flexDirection:"column",gap:8}}>
           {msgs.map((m,i)=>(
             <div key={i} style={{display:"flex",justifyContent:m.r==="u"?"flex-end":"flex-start",gap:6,alignItems:"flex-start"}}>
               {m.r==="a"&&<div style={{width:18,height:18,borderRadius:6,background:"linear-gradient(135deg,#6366F1,#38BDF8)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,flexShrink:0,marginTop:2}}>✦</div>}
-              <div style={{maxWidth:"80%",padding:"8px 11px",borderRadius:m.r==="u"?"14px 14px 4px 14px":"4px 14px 14px 14px",background:m.r==="u"?"linear-gradient(135deg,#6366F1,#4F46E5)":T.surf,color:m.r==="u"?"white":T.text2,fontSize:12,lineHeight:1.6,whiteSpace:"pre-wrap"}}>{m.t}</div>
+              <div style={{maxWidth:"80%",padding:"8px 11px",borderRadius:m.r==="u"?"14px 14px 4px 14px":"4px 14px 14px 14px",background:m.r==="u"?"linear-gradient(135deg,#6366F1,#4F46E5)":TH.surf,color:m.r==="u"?"white":TH.text2,fontSize:12,lineHeight:1.6,whiteSpace:"pre-wrap"}}>{m.t}</div>
             </div>
           ))}
-          {busy&&<div style={{display:"flex",gap:6,alignItems:"center"}}><div style={{width:18,height:18,borderRadius:6,background:"linear-gradient(135deg,#6366F1,#38BDF8)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,flexShrink:0}}>✦</div><div style={{padding:"8px 12px",borderRadius:"4px 14px 14px 14px",background:T.surf,display:"flex",gap:4,alignItems:"center"}}>{[0,1,2].map(i=><div key={i} style={{width:5,height:5,borderRadius:"50%",background:T.accent,opacity:.7,animation:`bounce .9s ${i*.15}s ease-in-out infinite`}}/>)}</div></div>}
+          {busy&&<div style={{display:"flex",gap:6,alignItems:"center"}}><div style={{width:18,height:18,borderRadius:6,background:"linear-gradient(135deg,#6366F1,#38BDF8)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,flexShrink:0}}>✦</div><div style={{padding:"8px 12px",borderRadius:"4px 14px 14px 14px",background:TH.surf,display:"flex",gap:4,alignItems:"center"}}>{[0,1,2].map(i=><div key={i} style={{width:5,height:5,borderRadius:"50%",background:TH.accent,opacity:.7,animation:`bounce .9s ${i*.15}s ease-in-out infinite`}}/>)}</div></div>}
           <div ref={end}/>
         </div>
-        {msgs.length<=1&&<div style={{padding:"0 12px 8px"}}>{QUICK.map((q,i)=><button key={i} onClick={()=>send(q)} style={{display:"block",width:"100%",textAlign:"left",background:"rgba(99,102,241,0.07)",border:"1px solid rgba(99,102,241,0.15)",borderRadius:9,padding:"6px 10px",color:"#C7D2FE",fontSize:11,cursor:"pointer",marginBottom:4}}>{q} →</button>)}</div>}
-        <div style={{padding:"8px 12px",borderTop:`1px solid ${T.border}`,display:"flex",gap:7}}>
-          <input value={inp} onChange={e=>setInp(e.target.value)} onKeyDown={e=>e.key==="Enter"&&send()} placeholder="Ask anything…" style={{flex:1,background:"rgba(255,255,255,0.05)",border:`1px solid ${T.border}`,borderRadius:10,padding:"8px 11px",fontSize:12,color:T.text,outline:"none"}}/>
+        {msgs.length<=1&&<div style={{padding:"0 12px 8px"}}>{QUICK.map((q,i)=><button key={i} onClick={()=>send(q)} style={{display:"block",width:"100%",textAlign:"left",background:"rgba(99,102,241,0.07)",border:"1px solid rgba(99,102,241,0.15)",borderRadius:9,padding:"6px 10px",color:TH.accent,fontSize:11,cursor:"pointer",marginBottom:4}}>{q} →</button>)}</div>}
+        <div style={{padding:"8px 12px",borderTop:`1px solid ${TH.border}`,display:"flex",gap:7}}>
+          <input value={inp} onChange={e=>setInp(e.target.value)} onKeyDown={e=>e.key==="Enter"&&send()} placeholder="Ask anything…" style={{flex:1,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:10,padding:"8px 11px",fontSize:12,color:TH.text,outline:"none"}}/>
           <button onClick={()=>send()} disabled={busy} style={{width:32,height:32,borderRadius:9,border:"none",background:"linear-gradient(135deg,#6366F1,#4F46E5)",color:"white",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Send size={13}/></button>
         </div>
       </div>
@@ -462,21 +465,22 @@ function AIPanel({open,onClose,holdings,debts,spendingMonths}){
   );
 }
 
-function DebugPanel({open,onClose,portRaw,spendRaw,portErr,spendErr}){
+function DebugPanel({open,onClose,portRaw,spendRaw,portErr,spendErr,darkMode}){
   if(!open) return null;
+  const TH = darkMode ? T : LIGHT_T;
   return(
     <div style={{position:"fixed",inset:0,zIndex:400}}>
       <div onClick={onClose} style={{position:"absolute",inset:0,background:"rgba(0,0,0,0.7)",backdropFilter:"blur(4px)"}}/>
-      <div style={{position:"absolute",bottom:0,left:0,right:0,maxHeight:"70vh",background:"#0A0E1A",borderRadius:"20px 20px 0 0",padding:20,overflowY:"auto"}}>
+      <div style={{position:"absolute",bottom:0,left:0,right:0,maxHeight:"70vh",background:darkMode?"#0A0E1A":"#FFFFFF",borderRadius:"20px 20px 0 0",padding:20,overflowY:"auto"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
-          <div style={{fontSize:14,fontWeight:800,color:T.text}}>🔍 API Inspector</div>
-          <button onClick={onClose} style={{background:"transparent",border:`1px solid ${T.border}`,borderRadius:8,padding:"4px 10px",color:T.muted,cursor:"pointer",fontSize:11}}>Close</button>
+          <div style={{fontSize:14,fontWeight:800,color:TH.text}}>🔍 API Inspector</div>
+          <button onClick={onClose} style={{background:"transparent",border:`1px solid ${TH.border}`,borderRadius:8,padding:"4px 10px",color:TH.muted,cursor:"pointer",fontSize:11}}>Close</button>
         </div>
         {[{title:"📊 Portfolio API",color:"#818CF8",err:portErr,raw:portRaw},{title:"💰 Spending API",color:"#38BDF8",err:spendErr,raw:spendRaw}].map((s,i)=>(
           <div key={i} style={{marginBottom:16}}>
             <div style={{fontSize:11,fontWeight:700,color:s.color,marginBottom:7}}>{s.title}</div>
-            {s.err?<div style={{color:T.red,fontSize:11,padding:10,background:"rgba(248,113,113,0.08)",borderRadius:10,fontFamily:T.mono}}>{s.err}</div>
-            :<pre style={{fontSize:9,color:T.muted,background:"rgba(255,255,255,0.03)",borderRadius:10,padding:12,overflowX:"auto",whiteSpace:"pre-wrap",wordBreak:"break-all",maxHeight:160,overflowY:"auto",margin:0}}>{s.raw===null?"⏳ Loading…":s.raw===undefined?"No data":JSON.stringify(s.raw,null,2)}</pre>}
+            {s.err?<div style={{color:TH.red,fontSize:11,padding:10,background:"rgba(248,113,113,0.08)",borderRadius:10,fontFamily:TH.mono}}>{s.err}</div>
+            :<pre style={{fontSize:9,color:TH.muted,background:TH.surf,borderRadius:10,padding:12,overflowX:"auto",whiteSpace:"pre-wrap",wordBreak:"break-all",maxHeight:160,overflowY:"auto",margin:0}}>{s.raw===null?"⏳ Loading…":s.raw===undefined?"No data":JSON.stringify(s.raw,null,2)}</pre>}
           </div>
         ))}
       </div>
@@ -650,7 +654,7 @@ export default function App(){
       <style>{`
         @keyframes shimmer{0%{background-position:-200% 0}100%{background-position:200% 0}}
         @keyframes spin{to{transform:rotate(360deg)}}
-        .sk{background:linear-gradient(90deg,rgba(255,255,255,0.04) 25%,rgba(255,255,255,0.09) 50%,rgba(255,255,255,0.04) 75%);background-size:200% 100%;animation:shimmer 1.4s ease-in-out infinite;border-radius:10px;}
+        .sk{background:linear-gradient(90deg,${darkMode?"rgba(255,255,255,0.04)":"rgba(0,0,0,0.05)"} 25%,${darkMode?"rgba(255,255,255,0.09)":"rgba(0,0,0,0.09)"} 50%,${darkMode?"rgba(255,255,255,0.04)":"rgba(0,0,0,0.05)"} 75%);background-size:200% 100%;animation:shimmer 1.4s ease-in-out infinite;border-radius:10px;}
       `}</style>
       <div style={{height:54,display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
         <div style={{display:"flex",alignItems:"center",gap:8}}>
@@ -686,7 +690,7 @@ export default function App(){
       {/* Movers skeleton */}
       <div style={{borderRadius:18,border:"1px solid rgba(255,255,255,0.08)",padding:"14px 15px"}}>
         <div className="sk" style={{width:120,height:12,marginBottom:14}}/>
-        {[1,2,3].map(i=><div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 6px",borderBottom:i<3?"1px solid rgba(255,255,255,0.06)":"none"}}><div className="sk" style={{width:30,height:30,borderRadius:9,flexShrink:0}}/><div style={{flex:1}}><div className="sk" style={{width:"50%",height:10,marginBottom:5}}/><div className="sk" style={{width:"35%",height:8}}/></div><div className="sk" style={{width:60,height:28,borderRadius:8}}/></div>)}
+        {[1,2,3].map(i=><div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 6px",borderBottom:i<3?`1px solid ${TH.border}`:"none"}}><div className="sk" style={{width:30,height:30,borderRadius:9,flexShrink:0}}/><div style={{flex:1}}><div className="sk" style={{width:"50%",height:10,marginBottom:5}}/><div className="sk" style={{width:"35%",height:8}}/></div><div className="sk" style={{width:60,height:28,borderRadius:8}}/></div>)}
       </div>
     </div>
   );
@@ -736,6 +740,12 @@ export default function App(){
             <button onClick={()=>setDebugOpen(true)} style={{fontSize:10,fontWeight:700,padding:"3px 10px",borderRadius:999,cursor:"pointer",border:"none",color:isLive?"#22C55E":"#FBBF24",background:isLive?"rgba(34,197,94,0.1)":"rgba(251,191,36,0.1)",width:"100%",textAlign:"left"}}>
               {isLive?"● Live data":"◌ Cached data"}
             </button>
+            {/* Emergency Fund warning badge */}
+            {(EF_BAL/35750)<1&&(
+              <button onClick={()=>setTab("planning")} style={{fontSize:10,fontWeight:700,padding:"3px 10px",borderRadius:999,cursor:"pointer",border:"none",color:"#F87171",background:"rgba(248,113,113,0.1)",width:"100%",textAlign:"left",marginTop:4}}>
+                ⚠️ EF {(EF_BAL/35750).toFixed(1)}mo — Priority 1
+              </button>
+            )}
           </div>
 
           {/* Nav */}
@@ -1194,7 +1204,7 @@ export default function App(){
                               <div style={{display:"flex",alignItems:"center",gap:5}}>
                                 <span style={{fontSize:11,fontWeight:700,color:TH.text}}>{g.cat}</span>
                                 {isSav&&<span style={{fontSize:8,fontWeight:700,color:TH.green,background:"rgba(74,222,128,0.12)",padding:"1px 5px",borderRadius:999}}>SAVINGS</span>}
-                                {isFix&&<span style={{fontSize:8,color:TH.muted,background:"rgba(255,255,255,0.06)",padding:"1px 5px",borderRadius:999}}>FIXED</span>}
+                                {isFix&&<span style={{fontSize:8,color:TH.muted,background:TH.surf,padding:"1px 5px",borderRadius:999}}>FIXED</span>}
                                 {g.txns.length>1&&<span style={{fontSize:8,color:TH.muted}}>{g.txns.length}×</span>}
                               </div>
                             </div>
@@ -1245,6 +1255,35 @@ export default function App(){
                   </div>
                   <div style={{height:5,background:darkMode?"rgba(255,255,255,0.07)":"rgba(0,0,0,0.07)",borderRadius:999,overflow:"hidden"}}>
                     <div style={{height:"100%",width:`${Math.min(SAVINGS_RATE,100)}%`,background:SAVINGS_RATE>=35?TH.green:TH.red,borderRadius:999}}/>
+                  </div>
+                </div>
+                {/* Spending trend chart */}
+                <div style={dcStyle}>
+                  <div style={{fontSize:12,fontWeight:700,color:TH.text,marginBottom:10}}>Spending Trend</div>
+                  <ResponsiveContainer width="100%" height={110}>
+                    <AreaChart
+                      data={spendingMonths.map(m=>({month:m.m.split(" ")[0],spent:m.spent,budget:m.budget||70400}))}
+                      margin={{top:4,right:4,left:-20,bottom:0}}
+                    >
+                      <defs>
+                        <linearGradient id="spendTrendGrad" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor={TH.accent} stopOpacity={0.3}/>
+                          <stop offset="95%" stopColor={TH.accent} stopOpacity={0}/>
+                        </linearGradient>
+                      </defs>
+                      <XAxis dataKey="month" tick={{fontSize:9,fill:TH.muted}} axisLine={false} tickLine={false}/>
+                      <Tooltip
+                        formatter={(v,n)=>[`฿${Math.round(v).toLocaleString()}`, n==="spent"?"Spent":"Budget"]}
+                        contentStyle={{background:darkMode?"#0A0E1A":"#FFFFFF",border:`1px solid ${TH.border}`,borderRadius:8,fontSize:10,color:TH.text}}
+                        labelStyle={{color:TH.muted,marginBottom:4}}
+                      />
+                      <Area type="monotone" dataKey="budget" stroke={TH.muted} strokeWidth={1} fill="none" strokeDasharray="4 3" dot={false} activeDot={false}/>
+                      <Area type="monotone" dataKey="spent" stroke={TH.accent} strokeWidth={2} fill="url(#spendTrendGrad)" dot={{r:3,fill:TH.accent,strokeWidth:0}} activeDot={{r:4}}/>
+                    </AreaChart>
+                  </ResponsiveContainer>
+                  <div style={{display:"flex",gap:14,marginTop:6}}>
+                    <div style={{display:"flex",alignItems:"center",gap:4}}><div style={{width:12,height:2,background:TH.accent,borderRadius:1}}/><span style={{fontSize:9,color:TH.muted}}>Spent</span></div>
+                    <div style={{display:"flex",alignItems:"center",gap:4}}><div style={{width:12,height:2,background:TH.muted,borderRadius:1,opacity:0.5}}/><span style={{fontSize:9,color:TH.muted}}>Budget</span></div>
                   </div>
                 </div>
               </div>
@@ -1545,9 +1584,9 @@ export default function App(){
 
         {/* Overlays work on desktop too */}
         <ProfilePanel open={profOpen} onClose={()=>setProfOpen(false)} photo={profilePhoto} onPhotoChange={p=>{setProfilePhoto(p);try{localStorage.setItem('gf_photo',p);}catch{}}} name="Gift" darkMode={darkMode} setDarkMode={setDarkMode}/>
-        <FundPanel fund={selFund} onClose={()=>setSelFund(null)}/>
-        <AIPanel open={aiOpen} onClose={()=>setAiOpen(false)} holdings={holdings} debts={debts} spendingMonths={spendingMonths}/>
-        <DebugPanel open={debugOpen} onClose={()=>setDebugOpen(false)} portRaw={portRaw} spendRaw={spendRaw} portErr={portErr} spendErr={spendErr}/>
+        <FundPanel fund={selFund} onClose={()=>setSelFund(null)} darkMode={darkMode}/>
+        <AIPanel open={aiOpen} onClose={()=>setAiOpen(false)} holdings={holdings} debts={debts} spendingMonths={spendingMonths} darkMode={darkMode}/>
+        <DebugPanel open={debugOpen} onClose={()=>setDebugOpen(false)} portRaw={portRaw} spendRaw={spendRaw} portErr={portErr} spendErr={spendErr} darkMode={darkMode}/>
       </div>
     );
   }
@@ -1749,7 +1788,7 @@ export default function App(){
           <div style={cardStyle}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
               <div style={{fontSize:12,fontWeight:700,color:TH.text}}>Today's Movers</div>
-              <div style={{fontSize:9,fontWeight:600,color:TH.muted,background:"rgba(255,255,255,0.04)",padding:"2px 8px",borderRadius:999,border:`1px solid ${TH.border}`}}>{lastUp?lastUp.toLocaleTimeString("th-TH",{hour:"2-digit",minute:"2-digit"}):"May 2026"}</div>
+              <div style={{fontSize:9,fontWeight:600,color:TH.muted,background:TH.surf,padding:"2px 8px",borderRadius:999,border:`1px solid ${TH.border}`}}>{lastUp?lastUp.toLocaleTimeString("th-TH",{hour:"2-digit",minute:"2-digit"}):"May 2026"}</div>
             </div>
             {[...holdings].sort((a,b)=>Math.abs(b.dailyPct)-Math.abs(a.dailyPct)).slice(0,4).map((h,i,arr)=>(
               <div key={i} onClick={()=>setSelFund(h)} className="hrow" style={{display:"flex",alignItems:"center",gap:10,padding:"9px 7px",borderBottom:i<arr.length-1?`1px solid ${TH.border}`:"none"}}>
@@ -1849,7 +1888,7 @@ export default function App(){
               <div style={{fontSize:12,fontWeight:700}}>Holdings <span style={{fontSize:10,color:TH.muted,fontWeight:400}}>· tap for details</span></div>
               <div style={{position:"relative"}}>
                 <Search size={11} style={{position:"absolute",left:8,top:"50%",transform:"translateY(-50%)",color:TH.muted,pointerEvents:"none"}}/>
-                <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search…" style={{background:"rgba(255,255,255,0.05)",border:`1px solid ${TH.border}`,borderRadius:9,padding:"5px 10px 5px 26px",fontSize:11,color:TH.text,outline:"none",width:120}}/>
+                <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search…" style={{background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:9,padding:"5px 10px 5px 26px",fontSize:11,color:TH.text,outline:"none",width:120}}/>
               </div>
             </div>
             <div style={{display:"flex",gap:4,flexWrap:"wrap",marginBottom:10}}>
@@ -2045,7 +2084,7 @@ export default function App(){
                         <div style={{display:"flex",alignItems:"center",gap:5,flexWrap:"wrap"}}>
                           <span style={{fontSize:12,fontWeight:700}}>{g.cat}</span>
                           {isSav&&<span style={{fontSize:8,fontWeight:700,color:TH.green,background:"rgba(74,222,128,0.12)",padding:"1px 6px",borderRadius:999}}>SAVINGS</span>}
-                          {isFix&&<span style={{fontSize:8,fontWeight:600,color:TH.muted,background:"rgba(255,255,255,0.06)",padding:"1px 6px",borderRadius:999}}>FIXED</span>}
+                          {isFix&&<span style={{fontSize:8,fontWeight:600,color:TH.muted,background:TH.surf,padding:"1px 6px",borderRadius:999}}>FIXED</span>}
                           {isNot&&<span style={{fontSize:8,fontWeight:700,color:"#FBBF24",background:"rgba(251,191,36,0.12)",padding:"1px 6px",borderRadius:999}}>LARGE</span>}
                           {multi&&<span style={{fontSize:8,color:TH.muted}}>{g.txns.length}×</span>}
                         </div>
@@ -2059,7 +2098,7 @@ export default function App(){
                     {multi&&(
                       <div id={`tg${gi}`} style={{display:"none",flexDirection:"column",paddingLeft:12,marginTop:3,gap:2}}>
                         {g.txns.map((t,ti)=>(
-                          <div key={ti} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 9px",borderRadius:9,background:"rgba(255,255,255,0.02)",border:`1px solid ${TH.border}`}}>
+                          <div key={ti} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 9px",borderRadius:9,background:TH.surf,border:`1px solid ${TH.border}`}}>
                             <div><div style={{fontSize:11,fontWeight:500,color:TH.text2}}>{t.desc||t.cat}</div><div style={{fontSize:9,color:TH.muted}}>{t.date}{t.method&&` · ${t.method}`}</div></div>
                             <div style={{fontSize:11,fontWeight:700,fontFamily:TH.mono,color:amtC}}>{isSav?"+":"-"}{fmt(t.amount)}</div>
                           </div>
