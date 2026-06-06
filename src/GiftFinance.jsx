@@ -720,7 +720,7 @@ export default function App(){
         `}</style>
 
         {/* ── LEFT SIDEBAR ── */}
-        <div style={{width:180,flexShrink:0,background:darkMode?"#060912":"#FFFFFF",borderRight:`1px solid ${TH.border}`,display:"flex",flexDirection:"column",position:"sticky",top:0,height:"100vh",overflowY:"auto"}}>
+        <div style={{width:240,flexShrink:0,background:darkMode?"#060912":"#FFFFFF",borderRight:`1px solid ${TH.border}`,display:"flex",flexDirection:"column",position:"sticky",top:0,height:"100vh",overflowY:"auto"}}>
           {/* Logo + profile */}
           <div style={{padding:"16px 12px 12px",borderBottom:`1px solid ${TH.border}`}}>
             <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
