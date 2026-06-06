@@ -1202,9 +1202,9 @@ export default function App(){
                       {CAT_DATA_D.slice(0,7).map((c,i)=>{
                         const pct=CM.spent>0?(c.v/CM.spent*100):0;
                         return(
-                          <div key={i} onClick={()=>setSelCat(selCat===c.name?null:c.name)} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:6,marginBottom:5,cursor:"pointer",opacity:selCat&&selCat!==c.name?0.4:1}}>
+                          <div key={i} onClick={()=>setSelCat(selCat===c.name?null:c.name)} style={{display:"flex",alignItems:"center",justifyContent:"space-between",width:"100%",marginBottom:5,cursor:"pointer",opacity:selCat&&selCat!==c.name?0.4:1}}>
                             <div style={{display:"flex",alignItems:"center",gap:5}}><div style={{width:5,height:5,borderRadius:"50%",background:CAT_COLOR[c.name]||TH.accent}}/><span style={{fontSize:9,color:TH.text2}}>{c.name}</span></div>
-                            <span style={{fontSize:9,fontWeight:700,color:TH.text,fontFamily:TH.mono}}>{pct.toFixed(0)}%</span>
+                            <span style={{fontSize:9,fontWeight:700,color:TH.text,fontFamily:TH.mono,marginLeft:"auto"}}>{pct.toFixed(0)}%</span>
                           </div>
                         );
                       })}
