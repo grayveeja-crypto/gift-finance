@@ -958,7 +958,7 @@ export default function App(){
                     <div style={{fontSize:12,fontWeight:700,color:TH.text,marginBottom:12}}>Goals</div>
                     {[
                       {label:"Emergency Fund", pct:EF_PCT,                                    color:TH.gold,   note:`${fmt(EF_BAL)} / ฿143K`},
-                      {label:"Retirement",     pct:Math.min(100,RETIRE/3000000*100),          color:TH.accent, note:`${fmt(RETIRE)} / ฿3M`},
+                      {label:"Retirement",     pct:Math.min(100,(PERSONAL+RETIRE)/5000000*100), color:TH.accent, note:`${fmt(PERSONAL+RETIRE)} / ฿5M`},
                       {label:"Japan Fund",     pct:Math.min(100,(cashFlow.travelFund||0)/120000*100), color:TH.accent2, note:`${fmt(cashFlow.travelFund||0)} / ฿120K`},
                     ].map((g,i)=>(
                       <div key={i} style={{marginBottom:i<2?12:0}}>
@@ -1202,7 +1202,7 @@ export default function App(){
                       {CAT_DATA_D.slice(0,7).map((c,i)=>{
                         const pct=CM.spent>0?(c.v/CM.spent*100):0;
                         return(
-                          <div key={i} onClick={()=>setSelCat(selCat===c.name?null:c.name)} style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5,cursor:"pointer",opacity:selCat&&selCat!==c.name?0.4:1}}>
+                          <div key={i} onClick={()=>setSelCat(selCat===c.name?null:c.name)} style={{display:"flex",alignItems:"center",gap:6,marginBottom:5,cursor:"pointer",opacity:selCat&&selCat!==c.name?0.4:1}}>
                             <div style={{display:"flex",alignItems:"center",gap:5}}><div style={{width:5,height:5,borderRadius:"50%",background:CAT_COLOR[c.name]||TH.accent}}/><span style={{fontSize:9,color:TH.text2}}>{c.name}</span></div>
                             <span style={{fontSize:9,fontWeight:700,color:TH.text,fontFamily:TH.mono}}>{pct.toFixed(0)}%</span>
                           </div>
@@ -1342,7 +1342,7 @@ export default function App(){
                   <div style={{fontSize:12,fontWeight:700,color:TH.text,marginBottom:12}}>Goals</div>
                   {[
                     {label:"Emergency Fund",pct:EF_PCT,color:TH.gold,note:`${fmt(EF_BAL)} / ฿143K`},
-                    {label:"Retirement",pct:Math.min(100,RETIRE/3000000*100),color:TH.accent,note:`${fmt(RETIRE)} / ฿3M`},
+                    {label:"Retirement",pct:Math.min(100,(PERSONAL+RETIRE)/5000000*100),color:TH.accent,note:`${fmt(PERSONAL)} + ${fmt(RETIRE)} = ${fmt(PERSONAL+RETIRE)} / ฿5M`},
                     {label:"Japan Fund",pct:Math.min(100,(cashFlow.travelFund||0)/120000*100),color:TH.accent2,note:`${fmt(cashFlow.travelFund||0)} / ฿120K`},
                   ].map((g,i)=>(
                     <div key={i} style={{marginBottom:i<2?14:0}}>
@@ -2037,11 +2037,11 @@ export default function App(){
                 {/* Interactive Donut chart */}
                 <div style={{display:"flex",alignItems:"center",gap:16,marginBottom:14}}>
                   <div style={{flexShrink:0,position:"relative"}}>
-                    <PieChart width={140} height={140}>
+                    <PieChart width={170} height={170}>
                       <Pie
                         data={CAT_DATA.slice(0,8)}
-                        cx={65} cy={65}
-                        innerRadius={42} outerRadius={60}
+                        cx={82} cy={82}
+                        innerRadius={52} outerRadius={70}
                         paddingAngle={2}
                         dataKey="v"
                         strokeWidth={0}
@@ -2060,7 +2060,7 @@ export default function App(){
                         ))}
                       </Pie>
                     </PieChart>
-                    <div style={{position:"absolute",top:"50%",left:"50%",transform:"translate(-50%,-50%)",textAlign:"center",pointerEvents:"none",width:70}}>
+                    <div style={{position:"absolute",top:"50%",left:"50%",transform:"translate(-50%,-50%)",textAlign:"center",pointerEvents:"none",width:86}}>
                       {selCat?(
                         <>
                           <div style={{fontFamily:TH.mono,fontSize:10,fontWeight:800,color:CAT_COLOR[selCat]||TH.accent,lineHeight:1.2}}>{fmt(CAT_DATA.find(c=>c.name===selCat)?.v||0)}</div>
@@ -2081,7 +2081,7 @@ export default function App(){
                       return(
                         <div key={i}
                           onClick={()=>setSelCat(selCat===c.name?null:c.name)}
-                          style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",opacity:selCat&&!isSelected?0.4:1,transition:"opacity .2s",padding:"2px 0"}}>
+                          style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer",opacity:selCat&&!isSelected?0.4:1,transition:"opacity .2s",padding:"2px 0"}}>
                           <div style={{display:"flex",alignItems:"center",gap:5}}>
                             <div style={{width:isSelected?8:6,height:isSelected?8:6,borderRadius:"50%",background:CAT_COLOR[c.name]||TH.accent,flexShrink:0,transition:"all .2s"}}/>
                             <span style={{fontSize:9,color:isSelected?TH.text:TH.text2,fontWeight:isSelected?700:500}}>{c.name}</span>
@@ -2100,7 +2100,7 @@ export default function App(){
                   const pct=CM.spent>0?(c.v/CM.spent*100):0;
                   return(
                     <div key={i} style={{marginBottom:10}}>
-                      <div style={{display:"flex",justifyContent:"space-between",fontSize:11,marginBottom:4,alignItems:"center"}}>
+                      <div style={{display:"flex",alignItems:"center",gap:8,fontSize:11,marginBottom:4}}>
                         <div style={{display:"flex",alignItems:"center",gap:7}}><div style={{width:7,height:7,borderRadius:"50%",background:CAT_COLOR[c.name]||TH.accent,flexShrink:0}}/><span style={{fontWeight:600,color:TH.text2}}>{c.name}</span></div>
                         <div style={{display:"flex",gap:7,alignItems:"center"}}><span style={{fontSize:9,color:TH.muted}}>{pct.toFixed(0)}%</span><span style={{fontWeight:700,fontFamily:TH.mono}}>{fmt(c.v)}</span></div>
                       </div>
@@ -2303,7 +2303,7 @@ export default function App(){
               <div style={{fontSize:12,fontWeight:700,marginBottom:12}}>Goals</div>
               {[
                 {label:"Emergency", pct:EF_PCT,                                    color:TH.gold,   note:`${fmt(EF_BAL)} / ฿143K`},
-                {label:"Retirement",pct:Math.min(100,RETIRE/3000000*100),          color:TH.accent, note:`${fmt(RETIRE)} / ฿3M`},
+                {label:"Retirement",pct:Math.min(100,(PERSONAL+RETIRE)/5000000*100), color:TH.accent, note:`${fmt(PERSONAL)} + ${fmt(RETIRE)} = ${fmt(PERSONAL+RETIRE)} / ฿5M`},
                 {label:"Japan Fund",pct:Math.min(100,(cashFlow.travelFund||0)/120000*100),color:TH.accent2,note:`${fmt(cashFlow.travelFund||0)} / ฿120K`},
               ].map((g,i)=>(
                 <div key={i} style={{marginBottom:i<2?14:0}}>
