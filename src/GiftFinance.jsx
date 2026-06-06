@@ -1084,6 +1084,9 @@ export default function App(){
                           <span style={{color:TH.dim,margin:"0 4px"}}>·</span>
                           <span style={{color:clr(h.dailyPct)}}>{sgn(h.dailyPct)}{fd(h.dailyPct)}%</span>
                         </div>
+                        {h.nav>0&&<div style={{fontSize:8,color:TH.muted,fontFamily:TH.mono,marginTop:1}}>
+                          ฿{fd(h.nav,4)}{h.navPrev>0&&<span style={{color:TH.inactive}}> / ฿{fd(h.navPrev,4)}</span>}
+                        </div>}
                       </div>
                       <ChevronRight size={12} color={TH.dim}/>
                     </div>
