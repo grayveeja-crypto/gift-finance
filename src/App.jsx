@@ -775,7 +775,7 @@ export default function App(){
             <div style={{height:4,background:TH.surf,borderRadius:999,overflow:"hidden",marginBottom:8}}>
               <div style={{height:"100%",width:`${Math.min(NW/5000000*100,100)}%`,background:"linear-gradient(90deg,#6366F1,#38BDF8)",borderRadius:999}}/>
             </div>
-            <div style={{fontSize:9,color:TH.muted}}>฿5M retirement goal · {fd(NW/5000000*100,0)}%</div>
+            <div style={{fontSize:9,color:TH.muted}}>฿5M retirement goal · {fd(Math.min((PERSONAL+RETIRE)/5000000*100,100),0)}%</div>
             <div style={{marginTop:12,display:"flex",gap:6}}>
               <button onClick={()=>fetchAll(true)} style={{flex:1,padding:"6px 0",borderRadius:8,border:`1px solid ${TH.border}`,background:"transparent",color:TH.muted,cursor:"pointer",fontSize:11,display:"flex",alignItems:"center",justifyContent:"center",gap:4}}>
                 <RefreshCw size={11} style={{animation:refreshing?"spin 1s linear infinite":"none"}}/> Refresh
@@ -1175,7 +1175,7 @@ export default function App(){
                       {CAT_DATA_D.slice(0,7).map((c,i)=>{
                         const pct=CM.spent>0?(c.v/CM.spent*100):0;
                         return(
-                          <div key={i} onClick={()=>setSelCat(selCat===c.name?null:c.name)} style={{display:"flex",alignItems:"center",gap:6,marginBottom:5,cursor:"pointer",opacity:selCat&&selCat!==c.name?0.4:1}}>
+                          <div key={i} onClick={()=>setSelCat(selCat===c.name?null:c.name)} style={{display:"flex",alignItems:"center",justifyContent:"space-between",width:"100%",marginBottom:5,cursor:"pointer",opacity:selCat&&selCat!==c.name?0.4:1}}>
                             <div style={{display:"flex",alignItems:"center",gap:5}}><div style={{width:5,height:5,borderRadius:"50%",background:CAT_COLOR[c.name]||TH.accent}}/><span style={{fontSize:9,color:TH.text2}}>{c.name}</span></div>
                             <span style={{fontSize:9,fontWeight:700,color:TH.text,fontFamily:TH.mono}}>{pct.toFixed(0)}%</span>
                           </div>
