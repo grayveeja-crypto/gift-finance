@@ -773,9 +773,9 @@ export default function App(){
             <div style={{fontFamily:TH.mono,fontSize:20,fontWeight:900,color:TH.text,letterSpacing:"-1px",marginBottom:2}}>{fmt(NW)}</div>
             <div style={{fontSize:10,color:TH.muted,marginBottom:10}}>{fmt(TOTAL)} − {fmt(DEBT)} debt</div>
             <div style={{height:4,background:TH.surf,borderRadius:999,overflow:"hidden",marginBottom:8}}>
-              <div style={{height:"100%",width:`${Math.min(NW/3000000*100,100)}%`,background:"linear-gradient(90deg,#6366F1,#38BDF8)",borderRadius:999}}/>
+              <div style={{height:"100%",width:`${Math.min(NW/5000000*100,100)}%`,background:"linear-gradient(90deg,#6366F1,#38BDF8)",borderRadius:999}}/>
             </div>
-            <div style={{fontSize:9,color:TH.muted}}>฿3M retirement goal · {fd(NW/3000000*100,0)}%</div>
+            <div style={{fontSize:9,color:TH.muted}}>฿5M retirement goal · {fd(NW/5000000*100,0)}%</div>
             <div style={{marginTop:12,display:"flex",gap:6}}>
               <button onClick={()=>fetchAll(true)} style={{flex:1,padding:"6px 0",borderRadius:8,border:`1px solid ${TH.border}`,background:"transparent",color:TH.muted,cursor:"pointer",fontSize:11,display:"flex",alignItems:"center",justifyContent:"center",gap:4}}>
                 <RefreshCw size={11} style={{animation:refreshing?"spin 1s linear infinite":"none"}}/> Refresh
@@ -2030,7 +2030,7 @@ export default function App(){
                       return(
                         <div key={i}
                           onClick={()=>setSelCat(selCat===c.name?null:c.name)}
-                          style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer",opacity:selCat&&!isSelected?0.4:1,transition:"opacity .2s",padding:"2px 0"}}>
+                          style={{display:"flex",alignItems:"center",justifyContent:"space-between",cursor:"pointer",opacity:selCat&&!isSelected?0.4:1,transition:"opacity .2s",padding:"2px 0"}}>
                           <div style={{display:"flex",alignItems:"center",gap:5}}>
                             <div style={{width:isSelected?8:6,height:isSelected?8:6,borderRadius:"50%",background:CAT_COLOR[c.name]||TH.accent,flexShrink:0,transition:"all .2s"}}/>
                             <span style={{fontSize:9,color:isSelected?TH.text:TH.text2,fontWeight:isSelected?700:500}}>{c.name}</span>
@@ -2049,7 +2049,7 @@ export default function App(){
                   const pct=CM.spent>0?(c.v/CM.spent*100):0;
                   return(
                     <div key={i} style={{marginBottom:10}}>
-                      <div style={{display:"flex",alignItems:"center",gap:8,fontSize:11,marginBottom:4}}>
+                      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",fontSize:11,marginBottom:4}}>
                         <div style={{display:"flex",alignItems:"center",gap:7}}><div style={{width:7,height:7,borderRadius:"50%",background:CAT_COLOR[c.name]||TH.accent,flexShrink:0}}/><span style={{fontWeight:600,color:TH.text2}}>{c.name}</span></div>
                         <div style={{display:"flex",gap:7,alignItems:"center"}}><span style={{fontSize:9,color:TH.muted}}>{pct.toFixed(0)}%</span><span style={{fontWeight:700,fontFamily:TH.mono}}>{fmt(c.v)}</span></div>
                       </div>
