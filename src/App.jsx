@@ -1645,6 +1645,127 @@ export default function App(){
           )}
         </div>
 
+          {/* ── TRENDS TAB (desktop) ── */}
+          {tab==="trends"&&(()=>{
+            const spendTrend = spendingMonths.map(sm=>{
+              const cats = sm.cats||{};
+              return { m:sm.m.replace(" 2026",""), Food:Math.round(cats["Food"]||0), Gas:Math.round(cats["Gas"]||0), Misc:Math.round(cats["Misc"]||0), Cat:Math.round(cats["Cat"]||0), Total:Math.round(sm.spent||0), Budget:Math.round(sm.budget||70400) };
+            });
+            const nwHistory = [{m:"May",nw:738364},{m:"Jun",nw:834563},{m:"Jul",nw:900000}];
+            const projData = Array.from({length:17},(_,i)=>({year:(2026+i).toString(),Conservative:Math.round((1640385+30000*12*i)*Math.pow(1.04,i)),Moderate:Math.round((1640385+30000*12*i)*Math.pow(1.06,i)),Optimistic:Math.round((1640385+30000*12*i)*Math.pow(1.08,i))}));
+            const savingsRateData = spendingMonths.map(sm=>{ const saved=(sm.transactions||[]).filter(t=>["Emergency","Japan Fund","Retirement"].includes(t.cat)).reduce((s,t)=>s+t.amount,0); return {m:sm.m.replace(" 2026",""),rate:Math.round((saved+10648)/88733*100)}; });
+            return(
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
+                {/* Net Worth */}
+                <div style={dcStyle}>
+                  <div style={{fontSize:13,fontWeight:700,marginBottom:4}}>Net Worth Trajectory</div>
+                  <div style={{fontSize:10,color:TH.muted,marginBottom:12}}>Portfolio minus total debt</div>
+                  <ResponsiveContainer width="100%" height={160}>
+                    <AreaChart data={nwHistory} margin={{top:4,right:4,left:0,bottom:0}}>
+                      <defs><linearGradient id="nwGD" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#4ADE80" stopOpacity={0.3}/><stop offset="95%" stopColor="#4ADE80" stopOpacity={0}/></linearGradient></defs>
+                      <XAxis dataKey="m" tick={{fontSize:10,fill:TH.muted}} axisLine={false} tickLine={false}/>
+                      <Tooltip formatter={(v)=>[`฿${Math.round(v).toLocaleString()}`,""]} contentStyle={{background:darkMode?"#0D1117":"#fff",border:`1px solid ${TH.border}`,borderRadius:10,fontSize:10}}/>
+                      <Area type="monotone" dataKey="nw" stroke="#4ADE80" strokeWidth={2} fill="url(#nwGD)" name="Net Worth" dot={{fill:"#4ADE80",r:4}}/>
+                    </AreaChart>
+                  </ResponsiveContainer>
+                  <div style={{display:"flex",justifyContent:"space-around",marginTop:8}}>
+                    {nwHistory.map((h,i)=>(
+                      <div key={i} style={{textAlign:"center"}}>
+                        <div style={{fontSize:9,color:TH.muted}}>{h.m}</div>
+                        <div style={{fontSize:12,fontWeight:700,color:TH.green,fontFamily:TH.mono}}>฿{(h.nw/1000).toFixed(0)}K</div>
+                        {i>0&&<div style={{fontSize:9,color:TH.green}}>+฿{((h.nw-nwHistory[i-1].nw)/1000).toFixed(0)}K</div>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                {/* Savings Rate */}
+                <div style={dcStyle}>
+                  <div style={{fontSize:13,fontWeight:700,marginBottom:4}}>Savings Rate</div>
+                  <div style={{fontSize:10,color:TH.muted,marginBottom:12}}>% of gross income saved/invested incl. PVD</div>
+                  <ResponsiveContainer width="100%" height={160}>
+                    <BarChart data={savingsRateData} margin={{top:4,right:4,left:0,bottom:0}} barSize={40}>
+                      <XAxis dataKey="m" tick={{fontSize:10,fill:TH.muted}} axisLine={false} tickLine={false}/>
+                      <Tooltip formatter={(v)=>[`${v}%`,"Savings Rate"]} contentStyle={{background:darkMode?"#0D1117":"#fff",border:`1px solid ${TH.border}`,borderRadius:10,fontSize:10}}/>
+                      <ReferenceLine y={30} stroke="#FBBF24" strokeDasharray="3 3"/>
+                      <Bar dataKey="rate" fill="#38BDF8" radius={[6,6,0,0]} name="Savings Rate"/>
+                    </BarChart>
+                  </ResponsiveContainer>
+                  <div style={{textAlign:"center",marginTop:8}}><span style={{fontSize:11,color:TH.muted}}>Current: </span><span style={{fontSize:14,fontWeight:800,color:"#38BDF8",fontFamily:TH.mono}}>{SAVINGS_RATE}%</span><span style={{fontSize:10,color:TH.green,marginLeft:6}}>✓ Above 30% benchmark</span></div>
+                </div>
+                {/* Retirement Projection — full width */}
+                <div style={{...dcStyle,gridColumn:"1 / -1"}}>
+                  <div style={{fontSize:13,fontWeight:700,marginBottom:2}}>Retirement Projection to 2042</div>
+                  <div style={{fontSize:10,color:TH.muted,marginBottom:8}}>฿30,000/mo contributions · ฿5M milestone → ฿20M ultimate goal</div>
+                  <div style={{display:"flex",gap:12,marginBottom:12}}>
+                    {[{l:"Conservative 4%",c:"#94A3B8"},{l:"Moderate 6%",c:"#38BDF8"},{l:"Optimistic 8%",c:"#4ADE80"}].map((s,i)=>(
+                      <div key={i} style={{display:"flex",alignItems:"center",gap:5}}><div style={{width:12,height:3,borderRadius:999,background:s.c}}/><span style={{fontSize:10,color:TH.muted}}>{s.l}</span></div>
+                    ))}
+                  </div>
+                  <ResponsiveContainer width="100%" height={220}>
+                    <AreaChart data={projData} margin={{top:4,right:40,left:0,bottom:0}}>
+                      <defs>
+                        {[["cD","#94A3B8"],["mD","#38BDF8"],["oD","#4ADE80"]].map(([id,c])=>(
+                          <linearGradient key={id} id={id} x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={c} stopOpacity={0.2}/><stop offset="95%" stopColor={c} stopOpacity={0}/></linearGradient>
+                        ))}
+                      </defs>
+                      <XAxis dataKey="year" tick={{fontSize:9,fill:TH.muted}} axisLine={false} tickLine={false} interval={2}/>
+                      <Tooltip formatter={(v)=>[`฿${(v/1000000).toFixed(1)}M`,""]} contentStyle={{background:darkMode?"#0D1117":"#fff",border:`1px solid ${TH.border}`,borderRadius:10,fontSize:10}}/>
+                      <ReferenceLine y={5000000}  stroke="#FBBF24" strokeDasharray="4 3" label={{value:"฿5M",fill:"#FBBF24",fontSize:10,position:"insideRight"}}/>
+                      <ReferenceLine y={20000000} stroke="#F472B6" strokeDasharray="4 3" label={{value:"฿20M",fill:"#F472B6",fontSize:10,position:"insideRight"}}/>
+                      <Area type="monotone" dataKey="Conservative" stroke="#94A3B8" strokeWidth={1.5} fill="url(#cD)" dot={false}/>
+                      <Area type="monotone" dataKey="Moderate"     stroke="#38BDF8" strokeWidth={2}   fill="url(#mD)" dot={false}/>
+                      <Area type="monotone" dataKey="Optimistic"   stroke="#4ADE80" strokeWidth={1.5} fill="url(#oD)" dot={false}/>
+                    </AreaChart>
+                  </ResponsiveContainer>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginTop:12}}>
+                    {[{l:"Conservative",v:"฿7.1M",c:"#94A3B8"},{l:"Moderate",v:"฿10.3M",c:"#38BDF8"},{l:"Optimistic",v:"฿15M+",c:"#4ADE80"}].map((s,i)=>(
+                      <div key={i} style={{background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"10px 14px",textAlign:"center"}}>
+                        <div style={{fontSize:9,color:TH.muted,marginBottom:4}}>{s.l}</div>
+                        <div style={{fontSize:16,fontWeight:800,color:s.c,fontFamily:TH.mono}}>{s.v}</div>
+                        <div style={{fontSize:9,color:TH.muted}}>by 2042</div>
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{marginTop:12,padding:"10px 14px",background:"rgba(251,191,36,0.07)",border:"1px solid rgba(251,191,36,0.2)",borderRadius:12,fontSize:11,color:TH.text2}}>
+                    <span style={{color:"#FBBF24",fontWeight:700}}>฿5M milestone</span> est. reached 2032–2033 at moderate returns. After that compounding accelerates toward ฿20M target. 🎯
+                  </div>
+                </div>
+                {/* Spending Trend */}
+                <div style={dcStyle}>
+                  <div style={{fontSize:13,fontWeight:700,marginBottom:4}}>Monthly Spending vs Budget</div>
+                  <div style={{fontSize:10,color:TH.muted,marginBottom:12}}>Actual vs ฿70,400 budget</div>
+                  <ResponsiveContainer width="100%" height={160}>
+                    <BarChart data={spendTrend} margin={{top:4,right:4,left:0,bottom:0}} barSize={22}>
+                      <XAxis dataKey="m" tick={{fontSize:10,fill:TH.muted}} axisLine={false} tickLine={false}/>
+                      <Tooltip formatter={(v,n)=>[`฿${Math.round(v).toLocaleString()}`,n]} contentStyle={{background:darkMode?"#0D1117":"#fff",border:`1px solid ${TH.border}`,borderRadius:10,fontSize:10}}/>
+                      <Bar dataKey="Total"  fill="#6366F1" radius={[4,4,0,0]} name="Spent"/>
+                      <Bar dataKey="Budget" fill="rgba(99,102,241,0.2)" radius={[4,4,0,0]} name="Budget"/>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+                {/* Milestone Tracker */}
+                <div style={dcStyle}>
+                  <div style={{fontSize:13,fontWeight:700,marginBottom:12}}>Milestone Tracker</div>
+                  {[{label:"฿1M Net Worth",target:1000000,current:900000,est:"~2026",c:"#FBBF24"},{label:"฿5M Portfolio",target:5000000,current:1640385,est:"~2033",c:"#6366F1"},{label:"฿20M Retirement",target:20000000,current:1640385,est:"~2042",c:"#4ADE80"}].map((ms,i)=>{
+                    const pct=Math.min(100,ms.current/ms.target*100);
+                    return(
+                      <div key={i} style={{marginBottom:i<2?16:0}}>
+                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+                          <span style={{fontSize:11,fontWeight:700,color:TH.text2}}>🎯 {ms.label}</span>
+                          <div style={{textAlign:"right"}}><span style={{fontSize:11,fontWeight:700,color:ms.c,fontFamily:TH.mono}}>{pct.toFixed(1)}%</span><div style={{fontSize:9,color:TH.muted}}>est. {ms.est}</div></div>
+                        </div>
+                        <div style={{height:6,background:`${ms.c}15`,borderRadius:999,overflow:"hidden"}}>
+                          <div style={{height:"100%",width:`${pct}%`,background:ms.c,borderRadius:999,transition:"width 1.2s ease"}}/>
+                        </div>
+                        <div style={{display:"flex",justifyContent:"space-between",fontSize:8,color:TH.muted,marginTop:2}}><span>฿{(ms.current/1000000).toFixed(2)}M</span><span>฿{(ms.target/1000000).toFixed(0)}M</span></div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })()}
+
         {/* Overlays work on desktop too */}
         <ProfilePanel open={profOpen} onClose={()=>setProfOpen(false)} photo={profilePhoto} onPhotoChange={p=>{setProfilePhoto(p);try{localStorage.setItem('gf_photo',p);}catch{}}} name="Gift" darkMode={darkMode} setDarkMode={setDarkMode}/>
         <FundPanel fund={selFund} onClose={()=>setSelFund(null)} darkMode={darkMode}/>
