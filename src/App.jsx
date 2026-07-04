@@ -766,6 +766,10 @@ export default function App(){
     const selA = ALLOC.find(a=>a.cls===selAlloc);
     const CAT_DATA_D = Object.entries(CM.cats&&Object.keys(CM.cats).length>0?CM.cats:(CM.transactions||[]).reduce((acc,t)=>{acc[t.cat]=(acc[t.cat]||0)+t.amount;return acc;},{})).filter(([,v])=>v>0).map(([k,v])=>({name:k,v})).sort((a,b)=>b.v-a.v);
     const dcStyle = { background:darkMode?"rgba(255,255,255,0.04)":"rgba(0,0,0,0.04)", border:`1px solid ${TH.border}`, borderRadius:16, padding:"16px 18px" };
+    const nwHistory = [{m:"May",nw:738364},{m:"Jun",nw:834563},{m:"Jul",nw:900000}];
+    const spendTrend = spendingMonths.map(sm=>{ const cats=sm.cats||{}; return {m:sm.m.replace(" 2026",""),Food:Math.round(cats["Food"]||0),Gas:Math.round(cats["Gas"]||0),Misc:Math.round(cats["Misc"]||0),Cat:Math.round(cats["Cat"]||0),Total:Math.round(sm.spent||0),Budget:Math.round(sm.budget||70400)}; });
+    const projData = Array.from({length:17},(_,i)=>({year:(2026+i).toString(),Conservative:Math.round((1640385+30000*12*i)*Math.pow(1.04,i)),Moderate:Math.round((1640385+30000*12*i)*Math.pow(1.06,i)),Optimistic:Math.round((1640385+30000*12*i)*Math.pow(1.08,i))}));
+    const savingsRateData = spendingMonths.map(sm=>{ const saved=(sm.transactions||[]).filter(t=>["Emergency","Japan Fund","Retirement"].includes(t.cat)).reduce((s,t)=>s+t.amount,0); return {m:sm.m.replace(" 2026",""),rate:Math.round((saved+10648)/88733*100)}; });
 
     return(
       <div style={{fontFamily:"'Inter','DM Sans',sans-serif",background:darkMode?"#080C18":"#F0F2F8",color:TH.text,width:"100%",height:"100vh",display:"flex",overflow:"hidden",WebkitFontSmoothing:"antialiased"}}>
@@ -850,7 +854,7 @@ export default function App(){
         </div>
 
         {/* ── MAIN CONTENT ── */}
-        <div style={{flex:"1 1 0%",overflowY:"auto",overflowX:"hidden",padding:"20px 24px 40px",minWidth:0,height:"100vh"}}>
+        <div style={{flex:"1 1 0%",overflowY:"auto",overflowX:"hidden",padding:"20px 24px 40px",minWidth:0,minHeight:0}}>
 
           {/* ── OVERVIEW TAB ── */}
           {tab==="overview"&&(
@@ -1644,18 +1648,9 @@ export default function App(){
               </div>
             </div>
           )}
-        </div>
 
           {/* ── TRENDS TAB (desktop) ── */}
-          {tab==="trends"&&(()=>{
-            const spendTrend = spendingMonths.map(sm=>{
-              const cats = sm.cats||{};
-              return { m:sm.m.replace(" 2026",""), Food:Math.round(cats["Food"]||0), Gas:Math.round(cats["Gas"]||0), Misc:Math.round(cats["Misc"]||0), Cat:Math.round(cats["Cat"]||0), Total:Math.round(sm.spent||0), Budget:Math.round(sm.budget||70400) };
-            });
-            const nwHistory = [{m:"May",nw:738364},{m:"Jun",nw:834563},{m:"Jul",nw:900000}];
-            const projData = Array.from({length:17},(_,i)=>({year:(2026+i).toString(),Conservative:Math.round((1640385+30000*12*i)*Math.pow(1.04,i)),Moderate:Math.round((1640385+30000*12*i)*Math.pow(1.06,i)),Optimistic:Math.round((1640385+30000*12*i)*Math.pow(1.08,i))}));
-            const savingsRateData = spendingMonths.map(sm=>{ const saved=(sm.transactions||[]).filter(t=>["Emergency","Japan Fund","Retirement"].includes(t.cat)).reduce((s,t)=>s+t.amount,0); return {m:sm.m.replace(" 2026",""),rate:Math.round((saved+10648)/88733*100)}; });
-            return(
+          {tab==="trends"&&(
               <div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) minmax(0,1fr)",gap:16,alignItems:"start"}}>
                 {/* Net Worth */}
                 <div style={dcStyle}>
@@ -1762,8 +1757,9 @@ export default function App(){
                   </div>
                 </div>
               </div>
-            );
-          })()}
+          )}
+
+        </div>
 
         {/* Overlays work on desktop too */}
         <ProfilePanel open={profOpen} onClose={()=>setProfOpen(false)} photo={profilePhoto} onPhotoChange={p=>{setProfilePhoto(p);try{localStorage.setItem('gf_photo',p);}catch{}}} name="Gift" darkMode={darkMode} setDarkMode={setDarkMode}/>
