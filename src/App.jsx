@@ -817,6 +817,7 @@ export default function App(){
               {id:"investments", label:"Invest",     Icon:BarChart2},
               {id:"spending",    label:"Spending",   Icon:CreditCard},
               {id:"planning",    label:"Plan",       Icon:Target},
+              {id:"trends",      label:"Trends",     Icon:TrendingUp},
               {id:"wealth",      label:"Wealth ✦",   Icon:Sparkles},
             ].map(({id,label,Icon})=>(
               <button key={id} onClick={()=>setTab(id)}
