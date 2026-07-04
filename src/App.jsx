@@ -623,39 +623,40 @@ export default function App(){
     // Last updated: June 2026
     setTimeout(() => {
       setWealthData({
-        score: 74,
+        score: 78,
         scoreLabel: "Good · 2 items need attention",
         allocation: {
           grade: "B+",
-          verdict: "Portfolio is growth-oriented and well-structured. Two deviations from target worth monitoring.",
+          verdict: "Portfolio well-structured and growth-oriented. US Equity remains underweight but DCA is correcting it steadily.",
           gaps: [
-            "Fixed Income at ~38% vs 30% target — overweight by 8%. Mainly PVD Fixed Income from April reallocation. Will self-correct via DCA over 12-18 months.",
-            "US Equity at ~7% vs 15% target — underweight. Alternating S&P500 DCA (฿10,000/mo) is correcting this gradually. On track by mid-2027.",
-            "Thai Equity at ~1% vs 5% target — consider SCBRM2 top-up when EF completes and Phase 2 unlocks."
+            "US Equity at ~7% vs 15% target — underweight. SCBRMS&P500 DCA ฿10,000/mo alternating is correcting this. On track by mid-2027.",
+            "Balanced at ~20% vs 5% target — overweight due to UNITED GLOBAL BALANCED in PVD. Cannot easily adjust PVD allocation. Will naturally rebalance over time.",
+            "Thai Equity at ~1% vs 5% target — consider SCBRM2 top-up when EF completes Oct 2027 and Phase 2 investing unlocks."
           ]
         },
         tax: {
           grade: "A",
           rmfSaved: 12000,
-          pvdSaved: 11667,
-          verdict: "Near-optimal tax efficiency. RMF + PVD saving ~฿23,667/year in tax at your 15% marginal bracket.",
-          tip: "December bonus: ฿50,000 into Thai ESG saves an additional ฿7,500 in tax — use it before Dec 31 deadline."
+          pvdSaved: 15972,
+          verdict: "Near-optimal tax efficiency. RMF + PVD 12% saving ~฿27,972/year in tax at your 15% marginal bracket.",
+          tip: "December bonus: ฿50,000 into Thai ESG saves an additional ฿7,500 in tax — use it before Dec 31 deadline. January 2027: PVD to 15% adds further savings."
         },
         nextMove: {
           lowHanging: [
-            "Complete emergency fund by Oct 2027 — at ฿8,000/mo you need ~16 more months. This unlocks ฿8,000/mo for Phase 2 investing.",
-            "Thai ESG ฿50,000 with year-end bonus in December 2026 → saves ฿7,500 in tax. Best immediate ROI available to you."
+            "Thai ESG ฿50,000 with December 2026 bonus → saves ฿7,500 in tax immediately. Best ROI available right now.",
+            "January 2027: PVD contribution to 15% — adds ฿2,662/month to retirement compounding for 16 years.",
           ],
           strategic: [
-            "January 2027: Switch RMF DCA from alternating to ฿6,000/฿6,000 split simultaneously. Smoother cost averaging across both funds.",
-            "When emergency fund completes (Oct 2027): redirect ฿8,000/mo toward RMF top-up to reach ฿13,310/mo ceiling and fully maximise tax deduction.",
-            "PVD upgrade to 15% from January 2027 — adds ฿2,662/mo to retirement compounding at 5.35% blended target return."
+            "January 2027: Switch RMF DCA to simultaneous ฿6,000/฿6,000 split across SCBRMS&P500 + SCBRMWORLD(A) for smoother cost averaging.",
+            "October 2027: Emergency fund completes → redirect ฿8,000/month to investments. Phase 2 unlocks.",
+            "2031: Attached Housing loan clears → ฿3,300/month freed. Redirect to investments to accelerate toward ฿5M milestone.",
+            "2034: Mortgage clears → ฿7,500/month freed. Full ฿10,800/month available for investing or lifestyle upgrade."
           ]
         },
         liquidity: {
           grade: "C+",
-          monthsCovered: 0.4,
-          verdict: "At 0.4 months coverage, an unexpected expense could force investment liquidation. Emergency fund is Priority 1 — everything else waits.",
+          monthsCovered: 0.8,
+          verdict: "At 0.8 months coverage (฿56,000 liquid vs ฿70,400 monthly spend), emergency fund remains Priority 1. All other optimizations wait until EF completes Oct 2027.",
           risk: "medium"
         }
       });
@@ -849,7 +850,7 @@ export default function App(){
         </div>
 
         {/* ── MAIN CONTENT ── */}
-        <div style={{flex:"1 1 0%",overflowY:"auto",overflowX:"hidden",padding:"20px 24px 40px",minWidth:0}}>
+        <div style={{flex:"1 1 0%",overflowY:"auto",overflowX:"hidden",padding:"20px 24px 40px",minWidth:0,height:"100vh"}}>
 
           {/* ── OVERVIEW TAB ── */}
           {tab==="overview"&&(
