@@ -777,7 +777,7 @@ export default function App(){
           @keyframes bounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}
           @keyframes spin{to{transform:rotate(360deg)}}
           @keyframes shimmer{0%{background-position:-200% 0}100%{background-position:200% 0}}
-          html,body{width:100%;height:100%;margin:0;padding:0;overflow:hidden;}
+          html,body{width:100%;height:100%;margin:0;padding:0;}
           .dhrow{transition:background .12s;cursor:pointer;border-radius:10px;}
           .dhrow:hover{background:rgba(99,102,241,0.07)!important;}
           *{box-sizing:border-box;}
