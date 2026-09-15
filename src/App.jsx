@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Home, BarChart2, CreditCard, Target, Plus, RefreshCw, ChevronRight, X, Send, RotateCcw, Search, TrendingUp, TrendingDown, Shield, Zap, Sparkles, AlertTriangle, ArrowRight } from "lucide-react";
+import { Home, BarChart2, CreditCard, Target, Plus, RefreshCw, ChevronRight, X, Send, RotateCcw, Search, TrendingUp, TrendingDown, Shield, Zap, Sparkles, AlertTriangle, ArrowRight, Utensils, Heart, PiggyBank, Plane, Fuel, Smartphone, Wifi, Tv, Cat as CatIcon, Bus, MoreHorizontal, ShoppingCart, PartyPopper, Stethoscope, GraduationCap, Shirt, Gift as GiftIcon, Wine, MapPin, Pencil } from "lucide-react";
 import { AreaChart, Area, ResponsiveContainer, PieChart, Pie, Cell, Tooltip, XAxis, BarChart, Bar, Legend, ReferenceLine } from "recharts";
 import { supabase } from "./lib/supabaseClient";
 
@@ -81,8 +81,16 @@ const FB_SP = [
   ]},
 ];
 
-const CLS_COLOR = { "Global Equity":"#818CF8","Fixed Income":"#38BDF8","Gold":"#FBBF24","Balanced":"#34D399","US Equity":"#F472B6","Thai Equity":"#FB923C" };
-const CAT_COLOR = { Housing:"#6366F1",Food:"#22C55E",Mom:"#F472B6",Retirement:"#38BDF8","Japan Fund":"#FBBF24",Emergency:"#34D399",Installment:"#FB923C",Gas:"#94A3B8",Phone:"#A78BFA",Internet:"#67E8F9",Subscriptions:"#FCA5A5",Cat:"#86EFAC",Misc:"#CBD5E1" };
+const CLS_COLOR = { "Global Equity":"#818CF8","Fixed Income":"#38BDF8","Gold":"#FBBF24","Balanced":"#34D399","US Equity":"#F472B6","Thai Equity":"#FB923C","Cash/FX":"#94A3B8" };
+const CAT_COLOR = { Housing:"#6366F1",Food:"#22C55E",Mom:"#F472B6",Retirement:"#38BDF8","Japan Fund":"#FBBF24",Emergency:"#34D399",Installment:"#FB923C",Gas:"#94A3B8",Phone:"#A78BFA",Internet:"#67E8F9",Subscriptions:"#FCA5A5",Cat:"#86EFAC",Misc:"#CBD5E1",Transport:"#7DD3FC",
+  // generic extras
+  Groceries:"#4ADE80",Entertainment:"#C084FC",Healthcare:"#F87171",Education:"#60A5FA",Clothing:"#FDE68A",Gifts:"#F9A8D4",Travel:"#38BDF8",Alcohol:"#FB7185" };
+
+// Icon per category — used by the Add Expense category grid
+const CAT_ICON = { Housing:Home,Food:Utensils,Mom:Heart,Retirement:PiggyBank,"Japan Fund":Plane,Emergency:Shield,Installment:CreditCard,Gas:Fuel,Phone:Smartphone,Internet:Wifi,Subscriptions:Tv,Cat:CatIcon,Misc:MoreHorizontal,Transport:Bus,
+  Groceries:ShoppingCart,Entertainment:PartyPopper,Healthcare:Stethoscope,Education:GraduationCap,Clothing:Shirt,Gifts:GiftIcon,Travel:MapPin,Alcohol:Wine };
+// Order for the category grid — real categories first, generic ones after
+const CAT_GRID_ORDER = ["Housing","Food","Mom","Retirement","Japan Fund","Emergency","Installment","Gas","Phone","Internet","Subscriptions","Cat","Transport","Misc","Groceries","Entertainment","Healthcare","Education","Clothing","Gifts","Travel","Alcohol"];
 
 // ─── UTILS ───────────────────────────────────────────────────────────────────
 const pn  = v => { const n=parseFloat(String(v||0).replace(/[,฿%\s]/g,"")); return isNaN(n)?0:n; };
@@ -108,7 +116,7 @@ const MO=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec
 // ─── SUPABASE MAPPERS ────────────────────────────────────────────────────────
 function mapHoldingRow(r){
   return {
-    code: r.code, name: r.name || r.code, type: r.type || "Retirement", cls: r.cls,
+    id: r.id, code: r.code, name: r.name || r.code, type: r.type || "Retirement", cls: r.cls,
     value: pn(r.value), cost: pn(r.cost), nav: pn(r.nav), navPrev: pn(r.nav_prev),
     units: pn(r.units), dailyPct: pn(r.daily_pct), totalPct: pn(r.total_pct),
   };
@@ -197,7 +205,7 @@ function ProfilePanel({open,onClose,photo,onPhotoChange,name,darkMode,setDarkMod
   );
 }
 
-function FundPanel({fund,onClose,darkMode}){
+function FundPanel({fund,onClose,onEdit,darkMode}){
   if(!fund) return null;
   const TH = darkMode ? T : LIGHT_T;
   const gl=fund.value-fund.cost;
@@ -207,6 +215,7 @@ function FundPanel({fund,onClose,darkMode}){
     <div style={{position:"fixed",inset:0,zIndex:250,display:"flex",justifyContent:"flex-end"}}>
       <div onClick={onClose} style={{position:"absolute",inset:0,background:"rgba(0,0,0,0.55)",backdropFilter:"blur(6px)"}}/>
       <div style={{position:"relative",width:300,height:"100%",background:darkMode?"#0A0E1A":"#FFFFFF",borderLeft:`1px solid ${TH.border}`,padding:22,overflowY:"auto",animation:"slideIn .28s cubic-bezier(.16,1,.3,1)"}}>
+        {onEdit&&<button onClick={()=>onEdit(fund)} style={{position:"absolute",top:18,right:56,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:8,width:30,height:30,color:TH.accent2,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}><Pencil size={13}/></button>}
         <button onClick={onClose} style={{position:"absolute",top:18,right:18,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:8,width:30,height:30,color:TH.muted,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}><X size={15}/></button>
         <div style={{marginBottom:20,marginTop:4}}>
           <div style={{fontSize:9,color:TH.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:".07em",marginBottom:4}}>{fund.cls} · {fund.type}</div>
@@ -338,9 +347,28 @@ export default function App(){
   const [debts,setDebts]=useState(FB_D);
   const targetAlloc = FB_T;
   const history = FB_HIST;
-  const cashFlow = FB_CF;
+  const cashFlowFallback = FB_CF;
   const [spendingMonths,setSpendingMonths]=useState(FB_SP);
   const [dataSource,setDataSource]=useState("fallback");
+  // Latest month that has a transaction in `cat`, and its amount for that month (null if none found)
+  const latestMonthCatAmount = cat => {
+    for(let i=spendingMonths.length-1;i>=0;i--){
+      const amt=(spendingMonths[i].transactions||[]).filter(t=>t.cat===cat).reduce((s,t)=>s+t.amount,0);
+      if(amt>0) return amt;
+    }
+    return null;
+  };
+  // Sum of every transaction in `cat` across all loaded months (running total)
+  const cumulativeCatAmount = cat => spendingMonths.reduce((s,m)=>s+(m.transactions||[]).filter(t=>t.cat===cat).reduce((a,t)=>a+t.amount,0),0);
+  const japanFundThisMonth = latestMonthCatAmount("Japan Fund");
+  // Live cash-flow figures derived from real Supabase transactions, falling back to the
+  // static snapshot only when there's no loaded data yet (e.g. still on fallback/demo data).
+  const cashFlow = {
+    ...cashFlowFallback,
+    income: spendingMonths[spendingMonths.length-1]?.income || cashFlowFallback.income,
+    travelFund: cumulativeCatAmount("Japan Fund") || cashFlowFallback.travelFund,
+    emergencyFund: cumulativeCatAmount("Emergency") || cashFlowFallback.emergencyFund,
+  };
   const [portRaw,setPortRaw]=useState(null); const [spendRaw,setSpendRaw]=useState(null);
   const [portErr,setPortErr]=useState(null); const [spendErr,setSpendErr]=useState(null);
   const [darkMode,setDarkMode]=useState(true);
@@ -366,6 +394,46 @@ export default function App(){
   const [expenseFormOpen,setExpenseFormOpen]=useState(false);
   const [expenseForm,setExpenseForm]=useState({category:"Food",amount:"",date:new Date().toISOString().split("T")[0],note:""});
   const [expenseFormStatus,setExpenseFormStatus]=useState(null); // null | "saving" | "success" | "error"
+
+  // ─── FUND MANAGER (add / update holdings) ───────────────────────────────────
+  const BLANK_FUND = {id:null,code:"",name:"",type:"Personal",cls:"Global Equity",nav:"",units:"",cost:"",prevNav:0};
+  const [fundFormOpen,setFundFormOpen]=useState(false);
+  const [fundFormMode,setFundFormMode]=useState("add"); // "add" | "edit"
+  const [fundForm,setFundForm]=useState(BLANK_FUND);
+  const [fundFormStatus,setFundFormStatus]=useState(null); // null | "saving" | "success" | "error"
+
+  function openAddFund(){
+    setFundFormMode("add"); setFundForm(BLANK_FUND); setFundFormStatus(null); setFundFormOpen(true);
+  }
+  function openEditFund(fund){
+    setFundFormMode("edit");
+    setFundForm({id:fund.id,code:fund.code,name:fund.name,type:fund.type,cls:fund.cls,nav:String(fund.nav||""),units:String(fund.units||""),cost:String(fund.cost||""),prevNav:fund.nav||0});
+    setFundFormStatus(null); setFundFormOpen(true); setSelFund(null);
+  }
+  async function submitFund(){
+    const nav=parseFloat(fundForm.nav), units=parseFloat(fundForm.units), cost=parseFloat(fundForm.cost)||0;
+    if(!fundForm.code||!nav||!units) return;
+    setFundFormStatus("saving");
+    const value=nav*units;
+    const daily_pct = fundFormMode==="edit" && fundForm.prevNav ? +(((nav-fundForm.prevNav)/fundForm.prevNav)*100).toFixed(2) : 0;
+    const total_pct = cost ? +(((value-cost)/cost)*100).toFixed(2) : 0;
+    const row = {
+      code:fundForm.code.trim(), name:fundForm.name.trim()||fundForm.code.trim(), type:fundForm.type, cls:fundForm.cls,
+      value, cost, nav, nav_prev: fundFormMode==="edit" ? fundForm.prevNav : nav, units, daily_pct, total_pct,
+    };
+    try{
+      const { error } = fundFormMode==="edit"
+        ? await supabase.from("holdings").update(row).eq("id", fundForm.id)
+        : await supabase.from("holdings").insert(row);
+      if(error) throw error;
+      setFundFormStatus("success");
+      setTimeout(()=>{setFundFormStatus(null); setFundFormOpen(false);},1000);
+      fetchAll(true);
+    }catch(e){
+      setFundFormStatus("error");
+      setTimeout(()=>setFundFormStatus(null),3000);
+    }
+  }
   const [debugOpen,setDebugOpen]=useState(false); const [profOpen,setProfOpen]=useState(false);
   const [profilePhoto,setProfilePhoto]=useState(()=>{
     try{ return localStorage.getItem('gf_photo')||null; }catch{ return null; }
@@ -1235,7 +1303,7 @@ export default function App(){
                   {[
                     {dot:TH.gold,    label:"Emergency Fund",     amt:"฿8,000",  tag:"PHASE 1"},
                     {dot:"#818CF8",  label:`DCA → ${DCA_FUND}`, amt:"฿10,000", tag:"THIS MONTH"},
-                    {dot:TH.accent2, label:"Japan Travel Fund",  amt:"฿15,000", tag:"KTB"},
+                    {dot:TH.accent2, label:"Japan Travel Fund",  amt:japanFundThisMonth?fmt(japanFundThisMonth):"฿15,000", tag:"KTB"},
                     {dot:"#94A3B8",  label:"Fixed Bills",        amt:"฿35,816", tag:"AUTO"},
                     {dot:"#94A3B8",  label:"Spending Buffer",    amt:"฿5,000",  tag:"DAILY"},
                   ].map((r,i)=>(
@@ -1932,9 +2000,12 @@ export default function App(){
           <div style={cardStyle}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:8}}>
               <div style={{fontSize:12,fontWeight:700}}>Holdings <span style={{fontSize:10,color:TH.muted,fontWeight:400}}>· tap for details</span></div>
-              <div style={{position:"relative"}}>
-                <Search size={11} style={{position:"absolute",left:8,top:"50%",transform:"translateY(-50%)",color:TH.muted,pointerEvents:"none"}}/>
-                <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search…" style={{background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:9,padding:"5px 10px 5px 26px",fontSize:11,color:TH.text,outline:"none",width:120}}/>
+              <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                <div style={{position:"relative"}}>
+                  <Search size={11} style={{position:"absolute",left:8,top:"50%",transform:"translateY(-50%)",color:TH.muted,pointerEvents:"none"}}/>
+                  <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search…" style={{background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:9,padding:"5px 10px 5px 26px",fontSize:11,color:TH.text,outline:"none",width:120}}/>
+                </div>
+                <button onClick={openAddFund} style={{display:"flex",alignItems:"center",gap:4,background:"linear-gradient(135deg,#6366F1,#38BDF8)",border:"none",borderRadius:9,padding:"5px 10px",fontSize:10,fontWeight:700,color:"white",cursor:"pointer",flexShrink:0}}><Plus size={11}/> Fund</button>
               </div>
             </div>
             <div style={{display:"flex",gap:4,flexWrap:"wrap",marginBottom:10}}>
@@ -2181,7 +2252,7 @@ export default function App(){
             {[
               {dot:TH.gold,    label:"Emergency Fund",     amt:"฿8,000",  tag:"PHASE 1",   tc:TH.gold},
               {dot:"#818CF8", label:`DCA → ${DCA_FUND}`, amt:"฿10,000", tag:"THIS MONTH",tc:"#818CF8"},
-              {dot:TH.accent2, label:"Japan Travel Fund",  amt:"฿10,000", tag:"KTB",       tc:TH.accent2},
+              {dot:TH.accent2, label:"Japan Travel Fund",  amt:japanFundThisMonth?fmt(japanFundThisMonth):"฿15,000", tag:"KTB",       tc:TH.accent2},
               {dot:"#94A3B8", label:"Fixed Bills (auto)", amt:"฿35,816", tag:"AUTO",      tc:"#94A3B8"},
               {dot:"#94A3B8", label:"Spending Buffer",    amt:"฿5,000",  tag:"DAILY",     tc:"#94A3B8"},
             ].map((r,i)=>(
@@ -2544,12 +2615,12 @@ export default function App(){
                 <div style={{fontSize:10,color:"#6B7280"}}>Category, amount, date, note</div>
               </div>
             </button>
-            <button onClick={()=>{window.open("https://docs.google.com/spreadsheets/d/11rbwXYqXhJrXG7oWQS3pl5fHiXXWtNpsxgN7TbIc6UQ/edit?gid=0#gid=0","_blank");setQuickMenu(false);}}
+            <button onClick={(e)=>{e.stopPropagation();setQuickMenu(false);openAddFund();}}
               style={{display:"flex",alignItems:"center",gap:10,background:"#0A0E1A",border:"1px solid rgba(99,102,241,0.3)",borderRadius:14,padding:"11px 18px",cursor:"pointer",minWidth:200,boxShadow:"0 8px 32px rgba(0,0,0,0.4)"}}>
               <div style={{width:32,height:32,borderRadius:10,background:"rgba(129,140,248,0.15)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>📊</div>
               <div style={{textAlign:"left"}}>
-                <div style={{fontSize:12,fontWeight:700,color:"#FFFFFF"}}>Update Portfolio</div>
-                <div style={{fontSize:10,color:"#6B7280"}}>Holdings & NAV sheet</div>
+                <div style={{fontSize:12,fontWeight:700,color:"#FFFFFF"}}>Manage Funds</div>
+                <div style={{fontSize:10,color:"#6B7280"}}>Add a fund or update NAV</div>
               </div>
             </button>
             <div style={{width:32,height:32,borderRadius:"50%",background:"rgba(255,255,255,0.08)",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer"}} onClick={()=>setQuickMenu(false)}>
@@ -2641,42 +2712,55 @@ export default function App(){
       {/* ADD EXPENSE FORM MODAL */}
       {expenseFormOpen&&(
         <div style={{position:"fixed",inset:0,zIndex:300,display:"flex",alignItems:"flex-end"}} onClick={()=>setExpenseFormOpen(false)}>
-          <div onClick={e=>e.stopPropagation()} style={{width:"100%",maxWidth:480,margin:"0 auto",background:darkMode?"#0A0E1A":"#FFFFFF",borderRadius:"24px 24px 0 0",padding:"20px 20px 36px",boxShadow:"0 -8px 40px rgba(0,0,0,0.5)",animation:"slideUp .25s cubic-bezier(.16,1,.3,1)"}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+          <div onClick={e=>e.stopPropagation()} style={{width:"100%",maxWidth:480,margin:"0 auto",maxHeight:"88vh",overflowY:"auto",background:darkMode?"#0A0E1A":"#FFFFFF",borderRadius:"24px 24px 0 0",padding:"20px 20px 32px",boxShadow:"0 -8px 40px rgba(0,0,0,0.5)",animation:"slideUp .25s cubic-bezier(.16,1,.3,1)"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18}}>
               <div>
                 <div style={{fontSize:15,fontWeight:800,color:TH.text}}>Add Expense</div>
-                <div style={{fontSize:11,color:TH.muted}}>Category, amount, date & note</div>
+                <div style={{fontSize:11,color:TH.muted}}>Pick a category, enter the amount</div>
               </div>
               <button onClick={()=>setExpenseFormOpen(false)} style={{background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:10,width:30,height:30,color:TH.muted,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}><X size={14}/></button>
             </div>
 
-            <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:14}}>
-              <div>
-                <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Category</label>
-                <select
-                  value={expenseForm.category}
-                  onChange={e=>setExpenseForm(f=>({...f,category:e.target.value}))}
-                  style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 14px",fontSize:14,color:TH.text,outline:"none",fontFamily:"inherit"}}>
-                  {Object.keys(CAT_COLOR).map(c=><option key={c} value={c}>{c}</option>)}
-                </select>
-              </div>
-              <div>
-                <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Amount (฿)</label>
-                <input
-                  type="number" min="0" step="0.01" inputMode="decimal"
-                  value={expenseForm.amount}
-                  onChange={e=>setExpenseForm(f=>({...f,amount:e.target.value}))}
-                  placeholder="0.00"
-                  style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 14px",fontSize:14,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}
-                />
-              </div>
+            {/* Hero amount */}
+            <div style={{background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:16,padding:"16px 18px",marginBottom:18,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
+              <span style={{fontSize:22,fontWeight:700,color:TH.muted}}>฿</span>
+              <input
+                type="number" min="0" step="0.01" inputMode="decimal" autoFocus
+                value={expenseForm.amount}
+                onChange={e=>setExpenseForm(f=>({...f,amount:e.target.value}))}
+                placeholder="0.00"
+                style={{flex:1,minWidth:0,textAlign:"center",background:"transparent",border:"none",fontSize:32,fontWeight:800,color:TH.text,outline:"none",fontFamily:"inherit"}}
+              />
+            </div>
+
+            {/* Category grid */}
+            <div style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em",marginBottom:8}}>Category</div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,marginBottom:18}}>
+              {CAT_GRID_ORDER.map(c=>{
+                const Icon = CAT_ICON[c]||MoreHorizontal;
+                const color = CAT_COLOR[c]||TH.accent;
+                const active = expenseForm.category===c;
+                return (
+                  <button key={c} type="button" onClick={()=>setExpenseForm(f=>({...f,category:c}))}
+                    style={{display:"flex",flexDirection:"column",alignItems:"center",gap:5,padding:"10px 2px",borderRadius:14,border:active?`1.5px solid ${color}`:`1px solid ${TH.border}`,background:active?`${color}1A`:TH.surf,cursor:"pointer",transition:"all .12s"}}>
+                    <div style={{width:34,height:34,borderRadius:10,background:`${color}22`,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                      <Icon size={16} color={color}/>
+                    </div>
+                    <div style={{fontSize:9,fontWeight:600,color:active?TH.text:TH.text2,textAlign:"center",lineHeight:1.15}}>{c}</div>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Date + Note */}
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:16}}>
               <div>
                 <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Date</label>
                 <input
                   type="date"
                   value={expenseForm.date}
                   onChange={e=>setExpenseForm(f=>({...f,date:e.target.value}))}
-                  style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 14px",fontSize:14,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}
+                  style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 12px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}
                 />
               </div>
               <div>
@@ -2685,8 +2769,8 @@ export default function App(){
                   type="text"
                   value={expenseForm.note}
                   onChange={e=>setExpenseForm(f=>({...f,note:e.target.value}))}
-                  placeholder="Optional note"
-                  style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 14px",fontSize:14,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}
+                  placeholder="Optional"
+                  style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 12px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}
                 />
               </div>
             </div>
@@ -2698,12 +2782,105 @@ export default function App(){
             <button
               onClick={submitExpenseForm}
               disabled={!expenseForm.amount||expenseFormStatus==="saving"}
-              style={{width:"100%",padding:13,borderRadius:12,fontWeight:700,fontSize:13,background:expenseForm.amount?"linear-gradient(135deg,#6366F1,#38BDF8)":"rgba(255,255,255,0.06)",border:"none",color:expenseForm.amount?"white":"#4B5563",cursor:expenseForm.amount?"pointer":"default"}}>
-              Add Expense
+              style={{width:"100%",padding:14,borderRadius:12,fontWeight:700,fontSize:13,background:expenseForm.amount?`linear-gradient(135deg,${CAT_COLOR[expenseForm.category]||"#6366F1"},#38BDF8)`:"rgba(255,255,255,0.06)",border:"none",color:expenseForm.amount?"white":"#4B5563",cursor:expenseForm.amount?"pointer":"default"}}>
+              Save Expense
             </button>
           </div>
         </div>
       )}
+
+      {/* ADD / EDIT FUND MODAL */}
+      {fundFormOpen&&(()=>{
+        const nav=parseFloat(fundForm.nav)||0, units=parseFloat(fundForm.units)||0, cost=parseFloat(fundForm.cost)||0;
+        const liveValue = nav*units;
+        const liveDaily = fundFormMode==="edit" && fundForm.prevNav ? ((nav-fundForm.prevNav)/fundForm.prevNav)*100 : 0;
+        const canSave = fundForm.code.trim() && nav>0 && units>0;
+        return(
+        <div style={{position:"fixed",inset:0,zIndex:300,display:"flex",alignItems:"flex-end"}} onClick={()=>setFundFormOpen(false)}>
+          <div onClick={e=>e.stopPropagation()} style={{width:"100%",maxWidth:480,margin:"0 auto",maxHeight:"88vh",overflowY:"auto",background:darkMode?"#0A0E1A":"#FFFFFF",borderRadius:"24px 24px 0 0",padding:"20px 20px 32px",boxShadow:"0 -8px 40px rgba(0,0,0,0.5)",animation:"slideUp .25s cubic-bezier(.16,1,.3,1)"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+              <div>
+                <div style={{fontSize:15,fontWeight:800,color:TH.text}}>{fundFormMode==="edit"?"Edit Fund":"Add Fund"}</div>
+                <div style={{fontSize:11,color:TH.muted}}>{fundFormMode==="edit"?"Update NAV, units or cost":"New holding for your portfolio"}</div>
+              </div>
+              <button onClick={()=>setFundFormOpen(false)} style={{background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:10,width:30,height:30,color:TH.muted,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}><X size={14}/></button>
+            </div>
+
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+              <div>
+                <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Fund Code</label>
+                <input type="text" value={fundForm.code} disabled={fundFormMode==="edit"}
+                  onChange={e=>setFundForm(f=>({...f,code:e.target.value}))} placeholder="e.g. SCBRM2"
+                  style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 12px",fontSize:13,color:fundFormMode==="edit"?TH.muted:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
+              </div>
+              <div>
+                <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Name</label>
+                <input type="text" value={fundForm.name}
+                  onChange={e=>setFundForm(f=>({...f,name:e.target.value}))} placeholder="Optional"
+                  style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 12px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
+              </div>
+            </div>
+
+            <div style={{marginBottom:10}}>
+              <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Type</label>
+              <div style={{display:"flex",gap:8,marginTop:5}}>
+                {["Personal","Retirement"].map(t=>(
+                  <button key={t} type="button" onClick={()=>setFundForm(f=>({...f,type:t}))}
+                    style={{flex:1,padding:"10px 0",borderRadius:12,fontSize:12,fontWeight:700,cursor:"pointer",border:fundForm.type===t?`1.5px solid ${TH.accent}`:`1px solid ${TH.border}`,background:fundForm.type===t?`${TH.accent}1A`:TH.surf,color:fundForm.type===t?TH.text:TH.text2}}>{t}</button>
+                ))}
+              </div>
+            </div>
+
+            <div style={{marginBottom:14}}>
+              <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Asset Class</label>
+              <select value={fundForm.cls} onChange={e=>setFundForm(f=>({...f,cls:e.target.value}))}
+                style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 12px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit"}}>
+                {Object.keys(CLS_COLOR).map(c=><option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:14}}>
+              <div>
+                <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>NAV (฿)</label>
+                <input type="number" min="0" step="0.0001" inputMode="decimal" value={fundForm.nav}
+                  onChange={e=>setFundForm(f=>({...f,nav:e.target.value}))} placeholder="0.00"
+                  style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 8px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
+              </div>
+              <div>
+                <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Units</label>
+                <input type="number" min="0" step="0.01" inputMode="decimal" value={fundForm.units}
+                  onChange={e=>setFundForm(f=>({...f,units:e.target.value}))} placeholder="0.00"
+                  style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 8px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
+              </div>
+              <div>
+                <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Cost (฿)</label>
+                <input type="number" min="0" step="0.01" inputMode="decimal" value={fundForm.cost}
+                  onChange={e=>setFundForm(f=>({...f,cost:e.target.value}))} placeholder="0.00"
+                  style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 8px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
+              </div>
+            </div>
+
+            {nav>0&&units>0&&(
+              <div style={{background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"10px 14px",marginBottom:14,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <div><div style={{fontSize:9,color:TH.muted,fontWeight:600}}>VALUE</div><div style={{fontSize:14,fontWeight:800,color:TH.text,fontFamily:TH.mono}}>{fmt(liveValue)}</div></div>
+                {fundFormMode==="edit"&&fundForm.prevNav>0&&<div style={{textAlign:"right"}}><div style={{fontSize:9,color:TH.muted,fontWeight:600}}>DAILY CHANGE</div><div style={{fontSize:14,fontWeight:800,color:liveDaily>=0?"#4ADE80":"#F87171",fontFamily:TH.mono}}>{liveDaily>=0?"+":""}{liveDaily.toFixed(2)}%</div></div>}
+              </div>
+            )}
+
+            {fundFormStatus==="saving"&&<div style={{textAlign:"center",fontSize:12,color:TH.muted,marginBottom:10}}>Saving…</div>}
+            {fundFormStatus==="success"&&<div style={{textAlign:"center",fontSize:12,color:"#4ADE80",marginBottom:10}}>✓ Saved!</div>}
+            {fundFormStatus==="error"&&<div style={{textAlign:"center",fontSize:12,color:"#F87171",marginBottom:10}}>Failed to save — check connection</div>}
+
+            <button
+              onClick={submitFund}
+              disabled={!canSave||fundFormStatus==="saving"}
+              style={{width:"100%",padding:14,borderRadius:12,fontWeight:700,fontSize:13,background:canSave?"linear-gradient(135deg,#6366F1,#38BDF8)":"rgba(255,255,255,0.06)",border:"none",color:canSave?"white":"#4B5563",cursor:canSave?"pointer":"default"}}>
+              {fundFormMode==="edit"?"Save Changes":"Add Fund"}
+            </button>
+          </div>
+        </div>
+        );
+      })()}
 
       {/* ══ TRENDS TAB ══ */}
       {tab==="trends"&&(()=>{
@@ -2931,7 +3108,7 @@ export default function App(){
 
       {/* OVERLAYS */}
       <ProfilePanel open={profOpen} onClose={()=>setProfOpen(false)} photo={profilePhoto} onPhotoChange={p=>{setProfilePhoto(p);try{localStorage.setItem('gf_photo',p);}catch{}}} name="Gift" darkMode={darkMode} setDarkMode={setDarkMode}/>
-      <FundPanel fund={selFund} onClose={()=>setSelFund(null)}/>
+      <FundPanel fund={selFund} onClose={()=>setSelFund(null)} onEdit={openEditFund} darkMode={darkMode}/>
       <AIPanel open={aiOpen} onClose={()=>setAiOpen(false)} holdings={holdings} debts={debts} spendingMonths={spendingMonths}/>
       <DebugPanel open={debugOpen} onClose={()=>setDebugOpen(false)} portRaw={portRaw} spendRaw={spendRaw} portErr={portErr} spendErr={spendErr}/>
     </div>
