@@ -1,9 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Home, BarChart2, CreditCard, Target, Plus, RefreshCw, ChevronRight, X, Send, RotateCcw, Search, TrendingUp, TrendingDown, Shield, Zap, Sparkles, AlertTriangle, ArrowRight } from "lucide-react";
 import { AreaChart, Area, ResponsiveContainer, PieChart, Pie, Cell, Tooltip, XAxis, BarChart, Bar, Legend, ReferenceLine } from "recharts";
-
-const API_PORT  = "https://script.google.com/macros/s/AKfycbwO0C0-0U8WonDCYuvOxjGa-kxCWmO_bMhwbJ3pNiwsiXIz-S_-4cxjDwoIRY7uqDsu/exec";
-const API_SPEND = "https://script.google.com/macros/s/AKfycbx63wYg7kuFh9zZAs4V6FOfV5XxwPgmRB9v9-G8pobCxGn27NXaJXZhxDsMKvcLDcbt/exec";
+import { supabase } from "./lib/supabaseClient";
 
 const T = {
   bg:"#060912", surf:"rgba(255,255,255,0.04)", border:"rgba(255,255,255,0.08)",
@@ -105,205 +103,39 @@ function getAlloc(holdings){
   return Object.entries(m).map(([cls,val])=>({ cls,val,pct:+(val/total*100).toFixed(1),color:CLS_COLOR[cls]||T.accent }));
 }
 
-// Find header row in a 2D array
-function s2o(tab){
-  if(!Array.isArray(tab)||!tab.length) return [];
-  if(!Array.isArray(tab[0])) return tab;
-  const KEYS=["DATE","CATEGORY","ASSET CLASS","FUND","FUND CODE","DEBT","BALANCE","INCOME","PORTFOLIO"];
-  let hi=-1;
-  for(let i=0;i<Math.min(tab.length,8);i++){
-    const r=tab[i].map(v=>String(v||"").trim().toUpperCase());
-    if(r.some(v=>KEYS.includes(v)||v.includes("FUND")||v.includes("AMOUNT")||v.includes("ASSET"))){hi=i;break;}
-  }
-  if(hi===-1) return [];
-  const hdrs=tab[hi].map(v=>String(v||"").trim());
-  return tab.slice(hi+1).filter(r=>r.some(v=>v!==""&&v!==null&&v!==undefined)).map(r=>Object.fromEntries(hdrs.map((h,i)=>[h,r[i]??""])));
-}
-
-// ─── PARSERS ─────────────────────────────────────────────────────────────────
-function parseHoldings(raw){
-  const tabs=[raw?.["Main Holdings"],raw?.MainHoldings,raw?.holdings,Array.isArray(raw)?raw:null].filter(Boolean);
-  for(const tab of tabs){
-    const rows=s2o(Array.isArray(tab)?tab:[]);
-    if(!rows.length) continue;
-    if(!Object.keys(rows[0]).some(k=>k.toLowerCase().includes("fund")||k.toLowerCase().includes("value"))) continue;
-    const p=rows.map(r=>{
-      const code=String(r["Fund code"]||r["Fund Code"]||r["FUND CODE"]||r["code"]||"").trim();
-      const units=pn(r["Units"]||r["New Units"]||0);
-      const nav=pn(r["NAV"]||0);
-      const navPrev=pn(r["NAV Prev"]||r["NAV_Prev"]||0);
-      // Calculate value from units × nav if Total Value missing
-      const value=pn(r["Total Value"]||r["total_value"]||r["Value"]||(units&&nav?units*nav:0));
-      if(!code||!value) return null;
-      // Daily % from NAV Prev if available, else from sheet column
-      const rawD=navPrev>0?+((nav-navPrev)/navPrev*100).toFixed(2):pn(r["Daily Return %"]||r["daily_return"]||0);
-      const rawT=pn(r["Unrealized Gain/Loss %"]||r["total_return"]||0);
-      const rawType=String(r["Category"]||r["Portfolio"]||r["Type"]||"Retirement").trim();
-      const name=String(r["Name"]||r["Fund Name"]||code).trim();
-      const cost=pn(r["Cost Basis"]||r["cost_basis"]||0)||pn(r["Starting Cost Basis"]||0)+pn(r["New Contributions"]||0);
-      return {
-        code, name,
-        type: rawType.toLowerCase().includes("personal")?"Personal":"Retirement",
-        cls: String(r["Asset Class"]||r["asset_class"]||"").trim(),
-        value, cost, nav, navPrev, units,
-        dailyPct: rawD,
-        totalPct: Math.abs(rawT)<2?rawT*100:rawT,
-      };
-    }).filter(Boolean);
-    if(p.length) return p;
-  }
-  return null;
-}
-
-function parseDebts(raw){
-  const tabs=[raw?.["Debts"],raw?.Debts,raw?.debts].filter(Boolean);
-  for(const tab of tabs){
-    const rows=s2o(Array.isArray(tab)?tab:[]);
-    if(!rows.length) continue;
-    if(!Object.keys(rows[0]).some(k=>k.toLowerCase().includes("debt")||k.toLowerCase().includes("balance"))) continue;
-    const p=rows.map(r=>({
-      name:    String(r["Debt"]||r["Name"]||"").trim(),
-      balance: pn(r["Balance"]||0),
-      rate:    pn(r["Rate"]||r["Interest"]||0),
-      monthly: pn(r["Monthly Payment"]||0),
-      interest:pn(r["Monthly Interest"]||0),
-      principal:pn(r["Principal Payment"]||r["Principal"]||0),
-      years:   pn(r["Remaining Years"]||r["Years"]||0),
-    })).filter(d=>d.name&&d.balance>0);
-    if(p.length) return p;
-  }
-  return null;
-}
-
-function parseTarget(raw){
-  const tabs=[raw?.["TargetAllocation"],raw?.TargetAllocation].filter(Boolean);
-  for(const tab of tabs){
-    const rows=s2o(Array.isArray(tab)?tab:[]);
-    if(!rows.length) continue;
-    const p=rows.map(r=>({ cls:String(r["Asset Class"]||r["Class"]||"").trim(), target:pn(r["Target %"]||r["Target"]||0) })).filter(t=>t.cls&&t.target>0);
-    if(p.length) return p;
-  }
-  return null;
-}
-
-function parseHistory(raw){
-  const tabs=[raw?.["History"],raw?.History].filter(Boolean);
-  for(const tab of tabs){
-    const rows=s2o(Array.isArray(tab)?tab:[]);
-    if(!rows.length) continue;
-    const p=rows.filter(r=>r.Date||r.date).map(r=>({
-      m:String(r.Date||r.date).slice(0,7),
-      portfolio:pn(r["Portfolio Value"]||r["Portfolio"]||0),
-      debt:pn(r["Total Debt"]||r["Debt"]||0),
-      nw:pn(r["Net Worth"]||0),
-    })).filter(h=>h.portfolio>0);
-    if(p.length) return p;
-  }
-  return null;
-}
-
-function parseCF(raw){
-  const tabs=[raw?.["Cash Flow"],raw?.CashFlow].filter(Boolean);
-  for(const tab of tabs){
-    const rows=s2o(Array.isArray(tab)?tab:[]);
-    if(!rows.length) continue;
-    // Find last row with actual income data (skip empty trailing rows)
-    const l=[...rows].reverse().find(r=>pn(r?.Income||r?.income||0)>0);
-    if(!l) continue;
-    const income=pn(l?.Income||l?.income||0);
-    const rp=pn(l?.["Unallocated Cash"]||l?.["Unallocated Cash %"]||0);
-    return {
-      date:String(l?.Date||""), income, expenses:pn(l?.Expenses||0),
-      travelFund:pn(l?.["Travel Fund"]||0),
-      emergencyFund:pn(l?.["Emergency Fund"]||0),
-      cumBalance:pn(l?.["Cumulative Balance"]||0),
-      investments:pn(l?.["Investments "]||l?.["Investments"]||0),
-      unallocatedPct:rp<2?rp*100:rp,
-    };
-  }
-  return null;
-}
-
 const MO=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-const SKIP_TABS=["annual summary","annual","summary","template","sheet1"];
 
-function cleanDate(s){
-  if(!s) return "";
-  const str=String(s);
-  if(str.match(/^\d{4}-\d{2}-\d{2}/)) return str.slice(0,10);
-  try{ const d=new Date(str); if(!isNaN(d.getTime())) return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; }catch{}
-  return str.slice(0,10);
+// ─── SUPABASE MAPPERS ────────────────────────────────────────────────────────
+function mapHoldingRow(r){
+  return {
+    code: r.code, name: r.name || r.code, type: r.type || "Retirement", cls: r.cls,
+    value: pn(r.value), cost: pn(r.cost), nav: pn(r.nav), navPrev: pn(r.nav_prev),
+    units: pn(r.units), dailyPct: pn(r.daily_pct), totalPct: pn(r.total_pct),
+  };
 }
 
+function mapDebtRow(r){
+  return {
+    name: r.name, balance: pn(r.balance), rate: pn(r.rate), monthly: pn(r.monthly),
+    interest: pn(r.interest), principal: pn(r.principal), years: pn(r.years),
+  };
+}
 
-function parseSpending(raw) {
-  if(!raw||typeof raw!=="object") return null;
-
-  const mks=Object.keys(raw)
-    .filter(k=>k.match(/^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s*\d{4}$/i))
+function buildSpendingMonths(spendingRows, txnRows){
+  const byMonth = {};
+  (spendingRows||[]).forEach(s=>{ byMonth[s.month] = { m:s.month, budget:pn(s.budget), income:pn(s.income), transactions:[], cats:{} }; });
+  (txnRows||[]).forEach(t=>{
+    if(!byMonth[t.month]) byMonth[t.month] = { m:t.month, budget:70400, income:75400, transactions:[], cats:{} };
+    const txn = { date:t.date, day:"", cat:cleanCat(t.category), desc:t.description||"", amount:pn(t.amount), method:t.method||"" };
+    byMonth[t.month].transactions.push(txn);
+    byMonth[t.month].cats[txn.cat] = (byMonth[t.month].cats[txn.cat]||0) + txn.amount;
+  });
+  return Object.values(byMonth)
+    .map(mo=>({ ...mo, spent: mo.transactions.reduce((s,t)=>s+t.amount,0) }))
     .sort((a,b)=>{
-      const[am,ay]=a.split(" "),[bm,by]=b.split(" ");
-      return(+ay-+by)||(MO.indexOf(am.slice(0,3))-MO.indexOf(bm.slice(0,3)));
+      const [am,ay]=a.m.split(" "), [bm,by]=b.m.split(" ");
+      return (+ay-+by) || (MO.indexOf(am.slice(0,3))-MO.indexOf(bm.slice(0,3)));
     });
-
-  if(!mks.length) return null;
-
-  return mks.map(k=>{
-    const tab=raw[k];
-    if(!tab) return null;
-
-    // FORMAT 1: { budget, salary, transactions:[{date,cat,desc,amount,method}] }
-    if(tab.transactions && Array.isArray(tab.transactions)){
-      const budget = pn(tab.budget||70400);
-      const income = pn(tab.salary||tab.income||75400);
-      const txns = tab.transactions.filter(t=>{
-        if(!t) return false;
-        const amt=pn(t.amount); if(amt<=0) return false;
-        const dateStr=String(t.date||"").toUpperCase();
-        if(dateStr.includes("TOTAL")) return false;
-        if(dateStr.includes("BUDGET")) return false;
-        if(dateStr.includes("SPENT")) return false;
-        const cat=cleanCat(t.cat||t.category||"").toUpperCase();
-        if(cat.includes("TOTAL")) return false;
-        const desc=String(t.desc||"").toUpperCase();
-        if(desc.includes("TOTAL")) return false;
-        return true;
-      }).map(t=>({
-        date:   cleanDate(t.date||k),
-        day:    String(t.day||"").trim(),
-        cat:    cleanCat(t.cat||t.category||"Other"),
-        desc:   String(t.desc||"").trim(),
-        amount: pn(t.amount),
-        method: String(t.method||"").trim(),
-      }));
-      const spent=txns.reduce((s,t)=>s+t.amount,0);
-      const cats={}; txns.forEach(t=>{cats[t.cat]=(cats[t.cat]||0)+t.amount;});
-      return {m:k, budget, income, spent, transactions:txns, cats};
-    }
-
-    // FORMAT 2: raw 2D array from Sheets
-    if(Array.isArray(tab)){
-      const {budget,income}=extractBI(tab);
-      let hi=-1;
-      for(let i=0;i<Math.min(tab.length,8);i++){
-        const r=tab[i].map(v=>String(v||"").toUpperCase());
-        if(r.some(v=>v.includes("DATE")||v.includes("CATEGORY")||v.includes("AMOUNT"))){hi=i;break;}
-      }
-      if(hi===-1) return null;
-      const txns=tab.slice(hi+1).map(r=>{
-        if(!Array.isArray(r)) return null;
-        const amt=pn(r[4]); if(!amt) return null;
-        const cat=cleanCat(r[2]);
-        if(cat.toUpperCase().includes("TOTAL")) return null;
-        return { date:cleanDate(String(r[0]||k)), day:String(r[1]||"").trim(), cat, desc:String(r[3]||"").trim(), amount:amt, method:String(r[5]||"").trim() };
-      }).filter(Boolean);
-      const spent=txns.reduce((s,t)=>s+t.amount,0);
-      const cats={}; txns.forEach(t=>{cats[t.cat]=(cats[t.cat]||0)+t.amount;});
-      return {m:k, budget, income, spent, transactions:txns, cats};
-    }
-
-    return null;
-  }).filter(m=>m&&(m.spent>0||m.transactions.length>0));
 }
 
 // ─── SPARK ───────────────────────────────────────────────────────────────────
@@ -350,7 +182,7 @@ function ProfilePanel({open,onClose,photo,onPhotoChange,name,darkMode,setDarkMod
           <div style={{fontSize:16,fontWeight:800,color:TH.text,marginTop:10}}>{name}</div>
           <div style={{fontSize:11,color:TH.muted}}>Personal Finance Dashboard</div>
         </div>
-        {[{label:"Currency",val:"฿ Thai Baht"},{label:"Retirement target",val:"Age 60 · 2042"},{label:"Data source",val:"Google Sheets"}].map((r,i)=>(
+        {[{label:"Currency",val:"฿ Thai Baht"},{label:"Retirement target",val:"Age 60 · 2042"},{label:"Data source",val:"Supabase"}].map((r,i)=>(
           <div key={i} style={{display:"flex",justifyContent:"space-between",padding:"11px 0",borderBottom:`1px solid ${TH.border}`}}>
             <span style={{fontSize:12,color:TH.muted}}>{r.label}</span>
             <span style={{fontSize:12,fontWeight:600,color:TH.text2}}>{r.val}</span>
@@ -504,9 +336,9 @@ export default function App(){
   const [tab,setTab]=useState("overview");
   const [holdings,setHoldings]=useState(FB_H);
   const [debts,setDebts]=useState(FB_D);
-  const [targetAlloc,setTargetAlloc]=useState(FB_T);
-  const [history,setHistory]=useState(FB_HIST);
-  const [cashFlow,setCashFlow]=useState(FB_CF);
+  const targetAlloc = FB_T;
+  const history = FB_HIST;
+  const cashFlow = FB_CF;
   const [spendingMonths,setSpendingMonths]=useState(FB_SP);
   const [dataSource,setDataSource]=useState("fallback");
   const [portRaw,setPortRaw]=useState(null); const [spendRaw,setSpendRaw]=useState(null);
@@ -531,6 +363,9 @@ export default function App(){
   const [logParsed,setLogParsed]=useState(null);
   const [logStatus,setLogStatus]=useState(null); // null | "saving" | "success" | "error"
   const [logHistory,setLogHistory]=useState([]);
+  const [expenseFormOpen,setExpenseFormOpen]=useState(false);
+  const [expenseForm,setExpenseForm]=useState({category:"Food",amount:"",date:new Date().toISOString().split("T")[0],note:""});
+  const [expenseFormStatus,setExpenseFormStatus]=useState(null); // null | "saving" | "success" | "error"
   const [debugOpen,setDebugOpen]=useState(false); const [profOpen,setProfOpen]=useState(false);
   const [profilePhoto,setProfilePhoto]=useState(()=>{
     try{ return localStorage.getItem('gf_photo')||null; }catch{ return null; }
@@ -580,37 +415,69 @@ export default function App(){
   async function submitLog(entry){
     setLogStatus("saving");
     try{
-      await fetch(API_SPEND,{
-        method:"POST", mode:"no-cors",
-        headers:{"Content-Type":"application/json"},
-        body:JSON.stringify(entry)
+      const { error } = await supabase.from("transactions").insert({
+        month: entry.tab, date: entry.date, category: entry.cat,
+        description: entry.desc, amount: entry.amount, method: entry.method,
       });
+      if(error) throw error;
       setLogHistory(h=>[{...entry,id:Date.now()},...h.slice(0,9)]);
       setLogStatus("success");
       setLogInput(""); setLogParsed(null);
       setTimeout(()=>setLogStatus(null),2500);
+      fetchAll(true);
     }catch(e){
       setLogStatus("error");
       setTimeout(()=>setLogStatus(null),3000);
     }
   }
 
+  async function submitExpenseForm(){
+    const amount = parseFloat(expenseForm.amount);
+    if(!amount||amount<=0||!expenseForm.date) return;
+    setExpenseFormStatus("saving");
+    const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    const d = new Date(expenseForm.date+"T00:00:00");
+    const month = `${months[d.getMonth()]} ${d.getFullYear()}`;
+    try{
+      const { error } = await supabase.from("transactions").insert({
+        month, date: expenseForm.date, category: expenseForm.category,
+        description: expenseForm.note, amount, method: "",
+      });
+      if(error) throw error;
+      setExpenseFormStatus("success");
+      setExpenseForm({category:"Food",amount:"",date:new Date().toISOString().split("T")[0],note:""});
+      setTimeout(()=>{setExpenseFormStatus(null); setExpenseFormOpen(false);},1200);
+      fetchAll(true);
+    }catch(e){
+      setExpenseFormStatus("error");
+      setTimeout(()=>setExpenseFormStatus(null),3000);
+    }
+  }
+
   const fetchAll=useCallback(async(silent=false)=>{
     if(!silent) setLoading(true); setRefreshing(true); let live=false;
     try{
-      const res=await fetch(API_PORT,{mode:"cors"}); if(!res.ok) throw new Error(`HTTP ${res.status}`);
-      const raw=await res.json(); setPortRaw(raw); setPortErr(null);
-      const h=parseHoldings(raw); if(h?.length){setHoldings(h);live=true;}
-      const d=parseDebts(raw);    if(d?.length) setDebts(d);
-      const t=parseTarget(raw);   if(t?.length) setTargetAlloc(t);
-      const hi=parseHistory(raw); if(hi?.length) setHistory(hi);
-      const cf=parseCF(raw);      if(cf?.income) setCashFlow(cf);
-    }catch(e){setPortErr(String(e));}
+      const { data, error } = await supabase.from("holdings").select("*");
+      if(error) throw error;
+      setPortRaw(data); setPortErr(null);
+      if(data?.length){ setHoldings(data.map(mapHoldingRow)); live=true; }
+    }catch(e){setPortErr(String(e.message||e));}
     try{
-      const res=await fetch(API_SPEND,{mode:"cors"}); if(!res.ok) throw new Error(`HTTP ${res.status}`);
-      const raw=await res.json(); setSpendRaw(raw); setSpendErr(null);
-      const sm=parseSpending(raw); if(sm?.length){setSpendingMonths(sm);live=true;}
-    }catch(e){setSpendErr(String(e));}
+      const { data, error } = await supabase.from("debts").select("*");
+      if(error) throw error;
+      if(data?.length){ setDebts(data.map(mapDebtRow)); live=true; }
+    }catch(e){setPortErr(p=>p||String(e.message||e));}
+    try{
+      const [{ data: spendRows, error: spendErr }, { data: txnRows, error: txnErr }] = await Promise.all([
+        supabase.from("spending").select("*"),
+        supabase.from("transactions").select("*").order("date",{ascending:true}),
+      ]);
+      if(spendErr) throw spendErr;
+      if(txnErr) throw txnErr;
+      setSpendRaw({ spending: spendRows, transactions: txnRows }); setSpendErr(null);
+      const sm=buildSpendingMonths(spendRows, txnRows);
+      if(sm?.length){ setSpendingMonths(sm); live=true; }
+    }catch(e){setSpendErr(String(e.message||e));}
     setDataSource(live?"live":"fallback"); setLastUp(new Date()); setLoading(false); setRefreshing(false);
   },[]);
 
@@ -2669,6 +2536,14 @@ export default function App(){
                 <div style={{fontSize:10,color:"#6B7280"}}>Type it · AI logs it</div>
               </div>
             </button>
+            <button onClick={(e)=>{e.stopPropagation();setQuickMenu(false);setExpenseFormOpen(true);setExpenseFormStatus(null);}}
+              style={{display:"flex",alignItems:"center",gap:10,background:"#0A0E1A",border:"1px solid rgba(99,102,241,0.3)",borderRadius:14,padding:"11px 18px",cursor:"pointer",minWidth:200,boxShadow:"0 8px 32px rgba(0,0,0,0.4)"}}>
+              <div style={{width:32,height:32,borderRadius:10,background:"rgba(56,189,248,0.15)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>📝</div>
+              <div style={{textAlign:"left"}}>
+                <div style={{fontSize:12,fontWeight:700,color:"#FFFFFF"}}>Add Expense</div>
+                <div style={{fontSize:10,color:"#6B7280"}}>Category, amount, date, note</div>
+              </div>
+            </button>
             <button onClick={()=>{window.open("https://docs.google.com/spreadsheets/d/11rbwXYqXhJrXG7oWQS3pl5fHiXXWtNpsxgN7TbIc6UQ/edit?gid=0#gid=0","_blank");setQuickMenu(false);}}
               style={{display:"flex",alignItems:"center",gap:10,background:"#0A0E1A",border:"1px solid rgba(99,102,241,0.3)",borderRadius:14,padding:"11px 18px",cursor:"pointer",minWidth:200,boxShadow:"0 8px 32px rgba(0,0,0,0.4)"}}>
               <div style={{width:32,height:32,borderRadius:10,background:"rgba(129,140,248,0.15)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>📊</div>
@@ -2734,7 +2609,7 @@ export default function App(){
             )}
 
             {/* Status */}
-            {logStatus==="saving"&&<div style={{textAlign:"center",fontSize:12,color:TH.muted,marginBottom:10}}>Saving to sheet…</div>}
+            {logStatus==="saving"&&<div style={{textAlign:"center",fontSize:12,color:TH.muted,marginBottom:10}}>Saving…</div>}
             {logStatus==="success"&&<div style={{textAlign:"center",fontSize:12,color:"#4ADE80",marginBottom:10}}>✓ Logged successfully!</div>}
             {logStatus==="error"&&<div style={{textAlign:"center",fontSize:12,color:"#F87171",marginBottom:10}}>Failed to save — check connection</div>}
 
@@ -2759,6 +2634,73 @@ export default function App(){
             <div style={{marginTop:14,fontSize:11,color:TH.muted,textAlign:"center"}}>
               Try: "ชาเย็น 60" · "cat food 320" · "gas fill up 820"
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ADD EXPENSE FORM MODAL */}
+      {expenseFormOpen&&(
+        <div style={{position:"fixed",inset:0,zIndex:300,display:"flex",alignItems:"flex-end"}} onClick={()=>setExpenseFormOpen(false)}>
+          <div onClick={e=>e.stopPropagation()} style={{width:"100%",maxWidth:480,margin:"0 auto",background:darkMode?"#0A0E1A":"#FFFFFF",borderRadius:"24px 24px 0 0",padding:"20px 20px 36px",boxShadow:"0 -8px 40px rgba(0,0,0,0.5)",animation:"slideUp .25s cubic-bezier(.16,1,.3,1)"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+              <div>
+                <div style={{fontSize:15,fontWeight:800,color:TH.text}}>Add Expense</div>
+                <div style={{fontSize:11,color:TH.muted}}>Category, amount, date & note</div>
+              </div>
+              <button onClick={()=>setExpenseFormOpen(false)} style={{background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:10,width:30,height:30,color:TH.muted,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}><X size={14}/></button>
+            </div>
+
+            <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:14}}>
+              <div>
+                <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Category</label>
+                <select
+                  value={expenseForm.category}
+                  onChange={e=>setExpenseForm(f=>({...f,category:e.target.value}))}
+                  style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 14px",fontSize:14,color:TH.text,outline:"none",fontFamily:"inherit"}}>
+                  {Object.keys(CAT_COLOR).map(c=><option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Amount (฿)</label>
+                <input
+                  type="number" min="0" step="0.01" inputMode="decimal"
+                  value={expenseForm.amount}
+                  onChange={e=>setExpenseForm(f=>({...f,amount:e.target.value}))}
+                  placeholder="0.00"
+                  style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 14px",fontSize:14,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}
+                />
+              </div>
+              <div>
+                <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Date</label>
+                <input
+                  type="date"
+                  value={expenseForm.date}
+                  onChange={e=>setExpenseForm(f=>({...f,date:e.target.value}))}
+                  style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 14px",fontSize:14,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}
+                />
+              </div>
+              <div>
+                <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Note</label>
+                <input
+                  type="text"
+                  value={expenseForm.note}
+                  onChange={e=>setExpenseForm(f=>({...f,note:e.target.value}))}
+                  placeholder="Optional note"
+                  style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 14px",fontSize:14,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}
+                />
+              </div>
+            </div>
+
+            {expenseFormStatus==="saving"&&<div style={{textAlign:"center",fontSize:12,color:TH.muted,marginBottom:10}}>Saving…</div>}
+            {expenseFormStatus==="success"&&<div style={{textAlign:"center",fontSize:12,color:"#4ADE80",marginBottom:10}}>✓ Expense added!</div>}
+            {expenseFormStatus==="error"&&<div style={{textAlign:"center",fontSize:12,color:"#F87171",marginBottom:10}}>Failed to save — check connection</div>}
+
+            <button
+              onClick={submitExpenseForm}
+              disabled={!expenseForm.amount||expenseFormStatus==="saving"}
+              style={{width:"100%",padding:13,borderRadius:12,fontWeight:700,fontSize:13,background:expenseForm.amount?"linear-gradient(135deg,#6366F1,#38BDF8)":"rgba(255,255,255,0.06)",border:"none",color:expenseForm.amount?"white":"#4B5563",cursor:expenseForm.amount?"pointer":"default"}}>
+              Add Expense
+            </button>
           </div>
         </div>
       )}
