@@ -386,11 +386,6 @@ export default function App(){
   const [wealthError,setWealthError]=useState(null);
   const [wealthLastRun,setWealthLastRun]=useState(null);
   const [quickMenu,setQuickMenu]=useState(false); const [aiOpen,setAiOpen]=useState(false);
-  const [logOpen,setLogOpen]=useState(false);
-  const [logInput,setLogInput]=useState("");
-  const [logParsed,setLogParsed]=useState(null);
-  const [logStatus,setLogStatus]=useState(null); // null | "saving" | "success" | "error"
-  const [logHistory,setLogHistory]=useState([]);
   const [expenseFormOpen,setExpenseFormOpen]=useState(false);
   const [expenseForm,setExpenseForm]=useState({category:"Food",amount:"",date:new Date().toISOString().split("T")[0],note:""});
   const [expenseFormStatus,setExpenseFormStatus]=useState(null); // null | "saving" | "success" | "error"
@@ -401,6 +396,7 @@ export default function App(){
   const [fundFormMode,setFundFormMode]=useState("add"); // "add" | "edit"
   const [fundForm,setFundForm]=useState(BLANK_FUND);
   const [fundFormStatus,setFundFormStatus]=useState(null); // null | "saving" | "success" | "error"
+  const [fundCodeOpen,setFundCodeOpen]=useState(false);
 
   function openAddFund(){
     setFundFormMode("add"); setFundForm(BLANK_FUND); setFundFormStatus(null); setFundFormOpen(true);
@@ -440,64 +436,6 @@ export default function App(){
   });
   const [search,setSearch]=useState(""); const [fCls,setFCls]=useState("All");
   const [expandDebt,setExpandDebt]=useState(null); const [selMonth,setSelMonth]=useState(0);
-
-  // ─── EXPENSE LOGGER ──────────────────────────────────────────────────────────
-  const CAT_KEYWORDS = {
-    Food:["food","groceries","grocery","lineman","grab food","drinks","drink","snack","coffee","ชา","ข้าว","อาหาร","ชาเย็น","vitamin","vitamins","restaurant","eat","meal","lunch","dinner","breakfast","7-11","711"],
-    Gas:["gas","fill up","petrol","fuel","น้ำมัน"],
-    Cat:["cat","pet","แมว","cat food"],
-    Mom:["mom","allowance","แม่"],
-    Housing:["mortgage","rent","housing"],
-    Internet:["internet","wifi","true","ais","dtac"],
-    Phone:["phone","mobile","dtac","ais","true move"],
-    Subscriptions:["netflix","spotify","youtube","subscription","disney"],
-    Installment:["installment","switch","iphone","loan payment"],
-    Retirement:["retirement","fund","ลงทุน","กองทุน"],
-    "Japan Fund":["japan","ktb","travel fund","ท่องเที่ยว"],
-    Emergency:["emergency","ef","scb savings"],
-    Transport:["grab","taxi","bts","mrt","uber","bolt","bus","รถ"],
-    Misc:[]
-  };
-
-  function parseLogInput(text){
-    const lower = text.toLowerCase().trim();
-    const amountMatch = lower.match(/(\d+(?:\.\d+)?)/);
-    if(!amountMatch) return null;
-    const amount = parseFloat(amountMatch[1]);
-    const desc = text.replace(amountMatch[0],"").trim() || "Expense";
-    let cat = "Misc";
-    for(const [c,kws] of Object.entries(CAT_KEYWORDS)){
-      if(c==="Misc") continue;
-      if(kws.some(k=>lower.includes(k))){ cat=c; break; }
-    }
-    const now = new Date();
-    const date = now.toISOString().split("T")[0];
-    const days = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
-    const day = days[now.getDay()];
-    // Active month tab e.g. "Jul 2026"
-    const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-    const tab = `${months[now.getMonth()]} ${now.getFullYear()}`;
-    return { date, day, cat, desc, amount, method:"PromptPay", tab };
-  }
-
-  async function submitLog(entry){
-    setLogStatus("saving");
-    try{
-      const { error } = await supabase.from("transactions").insert({
-        month: entry.tab, date: entry.date, category: entry.cat,
-        description: entry.desc, amount: entry.amount, method: entry.method,
-      });
-      if(error) throw error;
-      setLogHistory(h=>[{...entry,id:Date.now()},...h.slice(0,9)]);
-      setLogStatus("success");
-      setLogInput(""); setLogParsed(null);
-      setTimeout(()=>setLogStatus(null),2500);
-      fetchAll(true);
-    }catch(e){
-      setLogStatus("error");
-      setTimeout(()=>setLogStatus(null),3000);
-    }
-  }
 
   async function submitExpenseForm(){
     const amount = parseFloat(expenseForm.amount);
@@ -2599,14 +2537,6 @@ export default function App(){
         <div style={{position:"fixed",inset:0,zIndex:200}} onClick={()=>setQuickMenu(false)}>
           <div style={{position:"absolute",bottom:90,left:"50%",transform:"translateX(-50%)",display:"flex",flexDirection:"column",gap:8,alignItems:"center",animation:"slideUp .2s ease-out"}}>
             <div style={{fontSize:10,fontWeight:600,color:"rgba(255,255,255,0.4)",marginBottom:2,letterSpacing:".05em"}}>QUICK ACTIONS</div>
-            <button onClick={(e)=>{e.stopPropagation();setQuickMenu(false);setLogOpen(true);setLogStatus(null);setLogParsed(null);setLogInput("");}}
-              style={{display:"flex",alignItems:"center",gap:10,background:"#0A0E1A",border:"1px solid rgba(99,102,241,0.3)",borderRadius:14,padding:"11px 18px",cursor:"pointer",minWidth:200,boxShadow:"0 8px 32px rgba(0,0,0,0.4)"}}>
-              <div style={{width:32,height:32,borderRadius:10,background:"rgba(74,222,128,0.15)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>💰</div>
-              <div style={{textAlign:"left"}}>
-                <div style={{fontSize:12,fontWeight:700,color:"#FFFFFF"}}>Log Expense</div>
-                <div style={{fontSize:10,color:"#6B7280"}}>Type it · AI logs it</div>
-              </div>
-            </button>
             <button onClick={(e)=>{e.stopPropagation();setQuickMenu(false);setExpenseFormOpen(true);setExpenseFormStatus(null);}}
               style={{display:"flex",alignItems:"center",gap:10,background:"#0A0E1A",border:"1px solid rgba(99,102,241,0.3)",borderRadius:14,padding:"11px 18px",cursor:"pointer",minWidth:200,boxShadow:"0 8px 32px rgba(0,0,0,0.4)"}}>
               <div style={{width:32,height:32,borderRadius:10,background:"rgba(56,189,248,0.15)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>📝</div>
@@ -2625,85 +2555,6 @@ export default function App(){
             </button>
             <div style={{width:32,height:32,borderRadius:"50%",background:"rgba(255,255,255,0.08)",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer"}} onClick={()=>setQuickMenu(false)}>
               <X size={14} color="#6B7280"/>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* EXPENSE LOGGER MODAL */}
-      {logOpen&&(
-        <div style={{position:"fixed",inset:0,zIndex:300,display:"flex",alignItems:"flex-end"}} onClick={()=>setLogOpen(false)}>
-          <div onClick={e=>e.stopPropagation()} style={{width:"100%",maxWidth:480,margin:"0 auto",background:darkMode?"#0A0E1A":"#FFFFFF",borderRadius:"24px 24px 0 0",padding:"20px 20px 36px",boxShadow:"0 -8px 40px rgba(0,0,0,0.5)",animation:"slideUp .25s cubic-bezier(.16,1,.3,1)"}}>
-            {/* Header */}
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
-              <div>
-                <div style={{fontSize:15,fontWeight:800,color:TH.text}}>Log Expense</div>
-                <div style={{fontSize:11,color:TH.muted}}>Type naturally · AI auto-categorizes</div>
-              </div>
-              <button onClick={()=>setLogOpen(false)} style={{background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:10,width:30,height:30,color:TH.muted,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}><X size={14}/></button>
-            </div>
-
-            {/* Input */}
-            <div style={{display:"flex",gap:8,marginBottom:12}}>
-              <input
-                autoFocus
-                value={logInput}
-                onChange={e=>{
-                  setLogInput(e.target.value);
-                  const p=parseLogInput(e.target.value);
-                  setLogParsed(p);
-                }}
-                onKeyDown={e=>{if(e.key==="Enter"&&logParsed)submitLog(logParsed);}}
-                placeholder='e.g. "groceries 2800" or "lineman 265"'
-                style={{flex:1,background:TH.surf,border:`1px solid ${logParsed?"#6366F1":TH.border}`,borderRadius:12,padding:"11px 14px",fontSize:14,color:TH.text,outline:"none",fontFamily:"inherit",transition:"border-color .15s"}}
-              />
-              <button
-                onClick={()=>logParsed&&submitLog(logParsed)}
-                disabled={!logParsed||logStatus==="saving"}
-                style={{width:44,height:44,borderRadius:12,background:logParsed?"linear-gradient(135deg,#6366F1,#38BDF8)":"rgba(255,255,255,0.06)",border:"none",cursor:logParsed?"pointer":"default",display:"flex",alignItems:"center",justifyContent:"center",transition:"all .15s",flexShrink:0}}>
-                <Send size={16} color={logParsed?"white":"#4B5563"}/>
-              </button>
-            </div>
-
-            {/* Preview parsed */}
-            {logParsed&&(
-              <div style={{background:"rgba(99,102,241,0.08)",border:"1px solid rgba(99,102,241,0.2)",borderRadius:12,padding:"10px 14px",marginBottom:12,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                <div style={{display:"flex",gap:10,alignItems:"center"}}>
-                  <div style={{width:8,height:8,borderRadius:"50%",background:CAT_COLOR[logParsed.cat]||"#818CF8",flexShrink:0}}/>
-                  <div>
-                    <div style={{fontSize:12,fontWeight:700,color:TH.text}}>{logParsed.cat}</div>
-                    <div style={{fontSize:11,color:TH.muted}}>{logParsed.desc} · {logParsed.date}</div>
-                  </div>
-                </div>
-                <div style={{fontSize:15,fontWeight:800,color:"#4ADE80"}}>฿{logParsed.amount.toLocaleString()}</div>
-              </div>
-            )}
-
-            {/* Status */}
-            {logStatus==="saving"&&<div style={{textAlign:"center",fontSize:12,color:TH.muted,marginBottom:10}}>Saving…</div>}
-            {logStatus==="success"&&<div style={{textAlign:"center",fontSize:12,color:"#4ADE80",marginBottom:10}}>✓ Logged successfully!</div>}
-            {logStatus==="error"&&<div style={{textAlign:"center",fontSize:12,color:"#F87171",marginBottom:10}}>Failed to save — check connection</div>}
-
-            {/* Recent logs */}
-            {logHistory.length>0&&(
-              <div>
-                <div style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".06em",marginBottom:8}}>This session</div>
-                {logHistory.slice(0,4).map(e=>(
-                  <div key={e.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 0",borderBottom:`1px solid ${TH.border}`}}>
-                    <div style={{display:"flex",gap:8,alignItems:"center"}}>
-                      <div style={{width:6,height:6,borderRadius:"50%",background:CAT_COLOR[e.cat]||"#818CF8",flexShrink:0}}/>
-                      <div style={{fontSize:12,color:TH.text2}}>{e.desc}</div>
-                      <div style={{fontSize:11,color:TH.muted}}>{e.cat}</div>
-                    </div>
-                    <div style={{fontSize:12,fontWeight:700,color:TH.text}}>฿{e.amount.toLocaleString()}</div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Hint */}
-            <div style={{marginTop:14,fontSize:11,color:TH.muted,textAlign:"center"}}>
-              Try: "ชาเย็น 60" · "cat food 320" · "gas fill up 820"
             </div>
           </div>
         </div>
@@ -2734,19 +2585,19 @@ export default function App(){
             </div>
 
             {/* Category grid */}
-            <div style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em",marginBottom:8}}>Category</div>
-            <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,marginBottom:18}}>
+            <div style={{fontSize:11,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em",marginBottom:9}}>Category</div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:18}}>
               {CAT_GRID_ORDER.map(c=>{
                 const Icon = CAT_ICON[c]||MoreHorizontal;
                 const color = CAT_COLOR[c]||TH.accent;
                 const active = expenseForm.category===c;
                 return (
                   <button key={c} type="button" onClick={()=>setExpenseForm(f=>({...f,category:c}))}
-                    style={{display:"flex",flexDirection:"column",alignItems:"center",gap:5,padding:"10px 2px",borderRadius:14,border:active?`1.5px solid ${color}`:`1px solid ${TH.border}`,background:active?`${color}1A`:TH.surf,cursor:"pointer",transition:"all .12s"}}>
-                    <div style={{width:34,height:34,borderRadius:10,background:`${color}22`,display:"flex",alignItems:"center",justifyContent:"center"}}>
-                      <Icon size={16} color={color}/>
+                    style={{display:"flex",flexDirection:"column",alignItems:"center",gap:7,padding:"13px 4px",borderRadius:14,border:active?`1.5px solid ${color}`:`1px solid ${TH.border}`,background:active?`${color}1A`:TH.surf,cursor:"pointer",transition:"all .12s"}}>
+                    <div style={{width:42,height:42,borderRadius:12,background:`${color}22`,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                      <Icon size={20} color={color}/>
                     </div>
-                    <div style={{fontSize:9,fontWeight:600,color:active?TH.text:TH.text2,textAlign:"center",lineHeight:1.15}}>{c}</div>
+                    <div style={{fontSize:13,fontWeight:700,color:active?TH.text:TH.text2,textAlign:"center",lineHeight:1.2}}>{c}</div>
                   </button>
                 );
               })}
@@ -2795,6 +2646,9 @@ export default function App(){
         const liveValue = nav*units;
         const liveDaily = fundFormMode==="edit" && fundForm.prevNav ? ((nav-fundForm.prevNav)/fundForm.prevNav)*100 : 0;
         const canSave = fundForm.code.trim() && nav>0 && units>0;
+        const codeQuery = fundForm.code.trim().toLowerCase();
+        const codeMatches = fundFormMode==="add" ? holdings.filter(h=>!codeQuery||h.code.toLowerCase().includes(codeQuery)).slice(0,6) : [];
+        const codeExact = codeQuery && holdings.some(h=>h.code.toLowerCase()===codeQuery);
         return(
         <div style={{position:"fixed",inset:0,zIndex:300,display:"flex",alignItems:"flex-end"}} onClick={()=>setFundFormOpen(false)}>
           <div onClick={e=>e.stopPropagation()} style={{width:"100%",maxWidth:480,margin:"0 auto",maxHeight:"88vh",overflowY:"auto",background:darkMode?"#0A0E1A":"#FFFFFF",borderRadius:"24px 24px 0 0",padding:"20px 20px 32px",boxShadow:"0 -8px 40px rgba(0,0,0,0.5)",animation:"slideUp .25s cubic-bezier(.16,1,.3,1)"}}>
@@ -2807,11 +2661,31 @@ export default function App(){
             </div>
 
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
-              <div>
+              <div style={{position:"relative"}}>
                 <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Fund Code</label>
-                <input type="text" value={fundForm.code} disabled={fundFormMode==="edit"}
-                  onChange={e=>setFundForm(f=>({...f,code:e.target.value}))} placeholder="e.g. SCBRM2"
+                <input type="text" value={fundForm.code} disabled={fundFormMode==="edit"} autoComplete="off"
+                  onChange={e=>{setFundForm(f=>({...f,code:e.target.value})); setFundCodeOpen(true);}}
+                  onFocus={()=>fundFormMode==="add"&&setFundCodeOpen(true)}
+                  onBlur={()=>setTimeout(()=>setFundCodeOpen(false),150)}
+                  placeholder="e.g. SCBRM2 or search…"
                   style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 12px",fontSize:13,color:fundFormMode==="edit"?TH.muted:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
+                {fundFormMode==="add"&&fundCodeOpen&&codeMatches.length>0&&(
+                  <div style={{position:"absolute",top:"100%",left:0,right:0,marginTop:4,background:darkMode?"#0F1420":"#FFFFFF",border:`1px solid ${TH.border}`,borderRadius:12,boxShadow:"0 8px 24px rgba(0,0,0,0.4)",zIndex:20,maxHeight:180,overflowY:"auto"}}>
+                    {codeMatches.map((h,i)=>(
+                      <div key={h.id||h.code} onMouseDown={()=>{openEditFund(h); setFundCodeOpen(false);}}
+                        style={{padding:"9px 12px",cursor:"pointer",borderBottom:i<codeMatches.length-1?`1px solid ${TH.border}`:"none",display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
+                        <div style={{minWidth:0}}>
+                          <div style={{fontSize:12,fontWeight:700,color:TH.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{h.code}</div>
+                          <div style={{fontSize:10,color:TH.muted,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{h.name}</div>
+                        </div>
+                        <div style={{fontSize:9,color:TH.muted,flexShrink:0,fontWeight:600}}>{h.type}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {fundFormMode==="add"&&codeQuery&&!codeExact&&codeMatches.length===0&&(
+                  <div style={{marginTop:5,fontSize:10,color:TH.muted}}>No match — this will add a new fund "{fundForm.code.trim()}"</div>
+                )}
               </div>
               <div>
                 <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Name</label>
