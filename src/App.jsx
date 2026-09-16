@@ -2150,7 +2150,7 @@ export default function App(){
 
           {spendSubTab===null?(
             <>
-              {/* HUB — tap into Summary or Log */}
+              {/* HUB — Summary, Transactions (view), Log Expense (quick add action) */}
               <div onClick={()=>setSpendSubTab("summary")} style={{...cardStyle,cursor:"pointer",display:"flex",alignItems:"center",gap:12}}>
                 <div style={{width:44,height:44,borderRadius:12,background:"rgba(56,189,248,0.12)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>📊</div>
                 <div style={{flex:1,minWidth:0}}>
@@ -2159,11 +2159,19 @@ export default function App(){
                 </div>
                 <ChevronRight size={16} color={TH.dim}/>
               </div>
-              <div onClick={()=>setSpendSubTab("log")} style={{...cardStyle,cursor:"pointer",display:"flex",alignItems:"center",gap:12}}>
-                <div style={{width:44,height:44,borderRadius:12,background:"rgba(129,140,248,0.12)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>📝</div>
+              <div onClick={()=>setSpendSubTab("transactions")} style={{...cardStyle,cursor:"pointer",display:"flex",alignItems:"center",gap:12}}>
+                <div style={{width:44,height:44,borderRadius:12,background:"rgba(129,140,248,0.12)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>📋</div>
                 <div style={{flex:1,minWidth:0}}>
-                  <div style={{fontSize:13,fontWeight:700,color:TH.text}}>Log</div>
+                  <div style={{fontSize:13,fontWeight:700,color:TH.text}}>Transactions</div>
                   <div style={{fontSize:11,color:TH.muted,marginTop:2}}>{TXNS.length} transaction{TXNS.length===1?"":"s"} this month</div>
+                </div>
+                <ChevronRight size={16} color={TH.dim}/>
+              </div>
+              <div onClick={()=>{setQuickMenu(false);setExpenseFormOpen(true);setExpenseFormStatus(null);}} style={{...cardStyle,cursor:"pointer",display:"flex",alignItems:"center",gap:12,border:`1px solid ${TH.accent}30`}}>
+                <div style={{width:44,height:44,borderRadius:12,background:"linear-gradient(135deg,rgba(99,102,241,0.18),rgba(56,189,248,0.18))",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>📝</div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:13,fontWeight:700,color:TH.text}}>Log Expense</div>
+                  <div style={{fontSize:11,color:TH.muted,marginTop:2}}>Add a new transaction</div>
                 </div>
                 <ChevronRight size={16} color={TH.dim}/>
               </div>
@@ -2284,16 +2292,26 @@ export default function App(){
           </div>
           </>)}
 
-          {spendSubTab==="log"&&(<>
-          <button onClick={()=>{setQuickMenu(false);setExpenseFormOpen(true);setExpenseFormStatus(null);}}
-            style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,width:"100%",padding:"12px",borderRadius:14,border:"none",background:"linear-gradient(135deg,#6366F1,#38BDF8)",color:"white",fontSize:12,fontWeight:700,cursor:"pointer"}}>
-            <Plus size={14}/> Log Expense
-          </button>
-          {TXNS.length>0&&(
+          {spendSubTab==="transactions"&&(<>
+          {TXNS.length===0?(
+            <div style={{...cardStyle,textAlign:"center",padding:"24px 12px"}}>
+              <div style={{fontSize:11,color:TH.muted,marginBottom:12}}>No transactions logged this month yet.</div>
+              <button onClick={()=>{setQuickMenu(false);setExpenseFormOpen(true);setExpenseFormStatus(null);}}
+                style={{display:"inline-flex",alignItems:"center",justifyContent:"center",gap:8,padding:"10px 18px",borderRadius:14,border:"none",background:"linear-gradient(135deg,#6366F1,#38BDF8)",color:"white",fontSize:12,fontWeight:700,cursor:"pointer"}}>
+                <Plus size={14}/> Log Expense
+              </button>
+            </div>
+          ):(
             <div style={cardStyle}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:13}}>
                 <div style={{fontSize:12,fontWeight:700}}>Transactions</div>
-                <span style={{fontSize:9,color:TH.muted}}>{TXNS.length} entries</span>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <span style={{fontSize:9,color:TH.muted}}>{TXNS.length} entries</span>
+                  <button onClick={()=>{setQuickMenu(false);setExpenseFormOpen(true);setExpenseFormStatus(null);}}
+                    style={{display:"flex",alignItems:"center",gap:3,padding:"4px 9px",borderRadius:999,border:`1px solid ${TH.accent}30`,background:`${TH.accent}12`,color:TH.accent,fontSize:9,fontWeight:700,cursor:"pointer"}}>
+                    <Plus size={10}/> Add
+                  </button>
+                </div>
               </div>
               {spendGroups().map((g,gi)=>{
                 const isSav=g.type==="savings",isFix=g.type==="fixed",isNot=g.type==="notable";
@@ -2796,23 +2814,23 @@ export default function App(){
 
             {/* Date + Note */}
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:16}}>
-              <div>
+              <div style={{minWidth:0}}>
                 <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Date</label>
                 <input
                   type="date"
                   value={expenseForm.date}
                   onChange={e=>setExpenseForm(f=>({...f,date:e.target.value}))}
-                  style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 12px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}
+                  style={{width:"100%",minWidth:0,marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 8px",fontSize:12,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}
                 />
               </div>
-              <div>
+              <div style={{minWidth:0}}>
                 <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Note</label>
                 <input
                   type="text"
                   value={expenseForm.note}
                   onChange={e=>setExpenseForm(f=>({...f,note:e.target.value}))}
                   placeholder="Optional"
-                  style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 12px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}
+                  style={{width:"100%",minWidth:0,marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 12px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}
                 />
               </div>
             </div>
