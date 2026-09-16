@@ -572,7 +572,7 @@ export default function App(){
       if(error) throw error;
       setExpenseFormStatus("success");
       setExpenseForm({category:"Food",amount:"",date:new Date().toISOString().split("T")[0],note:""});
-      setTimeout(()=>{setExpenseFormStatus(null); setExpenseFormOpen(false);},1200);
+      setTimeout(()=>{setExpenseFormStatus(null); setExpenseFormOpen(false); setSpendSubTab(null);},1200);
       fetchAll(true);
     }catch(e){
       setExpenseFormStatus("error");
@@ -2167,7 +2167,7 @@ export default function App(){
                 </div>
                 <ChevronRight size={16} color={TH.dim}/>
               </div>
-              <div onClick={()=>{setQuickMenu(false);setExpenseFormOpen(true);setExpenseFormStatus(null);}} style={{...cardStyle,cursor:"pointer",display:"flex",alignItems:"center",gap:12,border:`1px solid ${TH.accent}30`}}>
+              <div onClick={()=>{setExpenseFormStatus(null);setSpendSubTab("logexpense");}} style={{...cardStyle,cursor:"pointer",display:"flex",alignItems:"center",gap:12,border:`1px solid ${TH.accent}30`}}>
                 <div style={{width:44,height:44,borderRadius:12,background:"linear-gradient(135deg,rgba(99,102,241,0.18),rgba(56,189,248,0.18))",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>📝</div>
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{fontSize:13,fontWeight:700,color:TH.text}}>Log Expense</div>
@@ -2296,7 +2296,7 @@ export default function App(){
           {TXNS.length===0?(
             <div style={{...cardStyle,textAlign:"center",padding:"24px 12px"}}>
               <div style={{fontSize:11,color:TH.muted,marginBottom:12}}>No transactions logged this month yet.</div>
-              <button onClick={()=>{setQuickMenu(false);setExpenseFormOpen(true);setExpenseFormStatus(null);}}
+              <button onClick={()=>{setExpenseFormStatus(null);setSpendSubTab("logexpense");}}
                 style={{display:"inline-flex",alignItems:"center",justifyContent:"center",gap:8,padding:"10px 18px",borderRadius:14,border:"none",background:"linear-gradient(135deg,#6366F1,#38BDF8)",color:"white",fontSize:12,fontWeight:700,cursor:"pointer"}}>
                 <Plus size={14}/> Log Expense
               </button>
@@ -2307,7 +2307,7 @@ export default function App(){
                 <div style={{fontSize:12,fontWeight:700}}>Transactions</div>
                 <div style={{display:"flex",alignItems:"center",gap:8}}>
                   <span style={{fontSize:9,color:TH.muted}}>{TXNS.length} entries</span>
-                  <button onClick={()=>{setQuickMenu(false);setExpenseFormOpen(true);setExpenseFormStatus(null);}}
+                  <button onClick={()=>{setExpenseFormStatus(null);setSpendSubTab("logexpense");}}
                     style={{display:"flex",alignItems:"center",gap:3,padding:"4px 9px",borderRadius:999,border:`1px solid ${TH.accent}30`,background:`${TH.accent}12`,color:TH.accent,fontSize:9,fontWeight:700,cursor:"pointer"}}>
                     <Plus size={10}/> Add
                   </button>
@@ -2369,6 +2369,75 @@ export default function App(){
               </div>
             </div>
           )}
+          </>)}
+
+          {spendSubTab==="logexpense"&&(<>
+          <div style={cardStyle}>
+            {/* Hero amount */}
+            <div style={{background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:16,padding:"16px 18px",marginBottom:18,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
+              <span style={{fontSize:22,fontWeight:700,color:TH.muted}}>฿</span>
+              <input
+                type="number" min="0" step="0.01" inputMode="decimal"
+                value={expenseForm.amount}
+                onChange={e=>setExpenseForm(f=>({...f,amount:e.target.value}))}
+                placeholder="0.00"
+                style={{flex:1,minWidth:0,textAlign:"center",background:"transparent",border:"none",fontSize:32,fontWeight:800,color:TH.text,outline:"none",fontFamily:"inherit"}}
+              />
+            </div>
+
+            {/* Category grid */}
+            <div style={{fontSize:11,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em",marginBottom:9}}>Category</div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:18}}>
+              {CAT_GRID_ORDER.map(c=>{
+                const Icon = CAT_ICON[c]||MoreHorizontal;
+                const color = CAT_COLOR[c]||TH.accent;
+                const active = expenseForm.category===c;
+                return (
+                  <button key={c} type="button" onClick={()=>setExpenseForm(f=>({...f,category:c}))}
+                    style={{display:"flex",flexDirection:"column",alignItems:"center",gap:7,padding:"13px 4px",borderRadius:14,border:active?`1.5px solid ${color}`:`1px solid ${TH.border}`,background:active?`${color}1A`:TH.surf,cursor:"pointer",transition:"all .12s"}}>
+                    <div style={{width:42,height:42,borderRadius:12,background:`${color}22`,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                      <Icon size={20} color={color}/>
+                    </div>
+                    <div style={{fontSize:13,fontWeight:700,color:active?TH.text:TH.text2,textAlign:"center",lineHeight:1.2}}>{c}</div>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Date + Note — stacked, not side-by-side */}
+            <div style={{display:"flex",flexDirection:"column",gap:12,marginBottom:16}}>
+              <div>
+                <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Date</label>
+                <input
+                  type="date"
+                  value={expenseForm.date}
+                  onChange={e=>setExpenseForm(f=>({...f,date:e.target.value}))}
+                  style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 12px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}
+                />
+              </div>
+              <div>
+                <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Note</label>
+                <input
+                  type="text"
+                  value={expenseForm.note}
+                  onChange={e=>setExpenseForm(f=>({...f,note:e.target.value}))}
+                  placeholder="Optional"
+                  style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 12px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}
+                />
+              </div>
+            </div>
+
+            {expenseFormStatus==="saving"&&<div style={{textAlign:"center",fontSize:12,color:TH.muted,marginBottom:10}}>Saving…</div>}
+            {expenseFormStatus==="success"&&<div style={{textAlign:"center",fontSize:12,color:"#4ADE80",marginBottom:10}}>✓ Expense added!</div>}
+            {expenseFormStatus==="error"&&<div style={{textAlign:"center",fontSize:12,color:"#F87171",marginBottom:10}}>Failed to save — check connection</div>}
+
+            <button
+              onClick={submitExpenseForm}
+              disabled={!expenseForm.amount||expenseFormStatus==="saving"}
+              style={{width:"100%",padding:14,borderRadius:12,fontWeight:700,fontSize:13,background:expenseForm.amount?`linear-gradient(135deg,${CAT_COLOR[expenseForm.category]||"#6366F1"},#38BDF8)`:"rgba(255,255,255,0.06)",border:"none",color:expenseForm.amount?"white":"#4B5563",cursor:expenseForm.amount?"pointer":"default"}}>
+              Save Expense
+            </button>
+          </div>
           </>)}
           </>
           )}
@@ -2812,25 +2881,26 @@ export default function App(){
               })}
             </div>
 
-            {/* Date + Note */}
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:16}}>
-              <div style={{minWidth:0}}>
+            {/* Date + Note — stacked, not side-by-side: a locale-formatted date (e.g. "16 Sep BE 2569")
+                is too long to safely share a half-width column on every device. */}
+            <div style={{display:"flex",flexDirection:"column",gap:12,marginBottom:16}}>
+              <div>
                 <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Date</label>
                 <input
                   type="date"
                   value={expenseForm.date}
                   onChange={e=>setExpenseForm(f=>({...f,date:e.target.value}))}
-                  style={{width:"100%",minWidth:0,marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 8px",fontSize:12,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}
+                  style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 12px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}
                 />
               </div>
-              <div style={{minWidth:0}}>
+              <div>
                 <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Note</label>
                 <input
                   type="text"
                   value={expenseForm.note}
                   onChange={e=>setExpenseForm(f=>({...f,note:e.target.value}))}
                   placeholder="Optional"
-                  style={{width:"100%",minWidth:0,marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 12px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}
+                  style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 12px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}
                 />
               </div>
             </div>
