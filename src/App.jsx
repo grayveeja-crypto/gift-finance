@@ -128,10 +128,28 @@ function monthRank(m){
 // ─── SUPABASE MAPPERS ────────────────────────────────────────────────────────
 function mapHoldingRow(r){
   return {
-    id: r.id, code: r.code, name: r.name || r.code, type: r.type || "Retirement", cls: r.cls,
+    id: r.id, code: r.code, month: r.month || null, name: r.name || r.code, type: r.type || "Retirement", cls: r.cls,
     value: pn(r.value), cost: pn(r.cost), nav: pn(r.nav), navPrev: pn(r.nav_prev),
     units: pn(r.units), dailyPct: pn(r.daily_pct), totalPct: pn(r.total_pct),
   };
+}
+
+// Forward-filled total of `field` across all rows in `rows` (grouped by `key`), evaluated at
+// each month in `evalMonths` — each entity's latest value at-or-before that month counts, so a
+// fund/debt not yet updated for a later month still contributes its last known figure.
+function totalsAtMonths(rows, key, field, evalMonths){
+  const byKey = {};
+  rows.forEach(r=>{ if(!r.month) return; (byKey[r[key]]=byKey[r[key]]||[]).push(r); });
+  Object.values(byKey).forEach(arr=>arr.sort((a,b)=>monthRank(a.month)-monthRank(b.month)));
+  return evalMonths.map(m=>{
+    let total=0;
+    Object.values(byKey).forEach(arr=>{
+      let val=null;
+      for(const r of arr){ if(monthRank(r.month)<=monthRank(m)) val=r[field]; else break; }
+      if(val!=null) total+=val;
+    });
+    return total;
+  });
 }
 
 function mapDebtRow(r){
@@ -355,8 +373,10 @@ function useWindowWidth(){
 
 export default function App(){
   const [tab,setTab]=useState("overview");
-  const [holdings,setHoldings]=useState(FB_H);
-  const [debts,setDebts]=useState(FB_D);
+  const [holdings,setHoldings]=useState(FB_H); // latest month per fund code — used everywhere as "current" holdings
+  const [holdingsHistory,setHoldingsHistory]=useState([]); // every logged month, for the value/gain trend
+  const [debts,setDebts]=useState(FB_D); // latest month per debt name — used everywhere as "current" debt
+  const [debtHistory,setDebtHistory]=useState([]); // every logged month, for the payoff trend + month picker
   const targetAlloc = FB_T;
   const history = FB_HIST;
   const cashFlowFallback = FB_CF;
@@ -422,44 +442,47 @@ export default function App(){
   const [wealthError,setWealthError]=useState(null);
   const [wealthLastRun,setWealthLastRun]=useState(null);
   const [quickMenu,setQuickMenu]=useState(false); const [aiOpen,setAiOpen]=useState(false);
-  const [expenseFormOpen,setExpenseFormOpen]=useState(false);
   const [expenseForm,setExpenseForm]=useState({category:"Food",amount:"",date:new Date().toISOString().split("T")[0],note:""});
   const [expenseFormStatus,setExpenseFormStatus]=useState(null); // null | "saving" | "success" | "error"
 
   // ─── FUND MANAGER (add / update holdings) ───────────────────────────────────
-  const BLANK_FUND = {id:null,code:"",name:"",type:"Personal",cls:"Global Equity",nav:"",units:"",cost:"",prevNav:0};
-  const [fundFormOpen,setFundFormOpen]=useState(false);
+  // Like Debt, fund updates are now logged per month instead of overwritten, so value/cost/
+  // unrealized-gain can be charted over time. Saving upserts on (code, month).
+  const BLANK_FUND = {id:null,code:"",name:"",type:"Personal",cls:"Global Equity",nav:"",units:"",cost:"",prevNav:0,month:""};
   const [fundFormMode,setFundFormMode]=useState("add"); // "add" | "edit"
   const [fundForm,setFundForm]=useState(BLANK_FUND);
   const [fundFormStatus,setFundFormStatus]=useState(null); // null | "saving" | "success" | "error"
   const [fundCodeOpen,setFundCodeOpen]=useState(false);
 
+  // Fund add/edit is a standing tab page (investSubTab==="logfund"), same pattern as Log Expense —
+  // not a floating modal — so it's easier to fill in and matches everywhere else.
   function openAddFund(){
-    setFundFormMode("add"); setFundForm(BLANK_FUND); setFundFormStatus(null); setFundFormOpen(true);
+    setFundFormMode("add"); setFundForm({...BLANK_FUND, month: curMonthLabel()}); setFundFormStatus(null);
+    setTab("investments"); setInvestSubTab("logfund");
   }
   function openEditFund(fund){
     setFundFormMode("edit");
-    setFundForm({id:fund.id,code:fund.code,name:fund.name,type:fund.type,cls:fund.cls,nav:String(fund.nav||""),units:String(fund.units||""),cost:String(fund.cost||""),prevNav:fund.nav||0});
-    setFundFormStatus(null); setFundFormOpen(true); setSelFund(null);
+    setFundForm({id:fund.id,code:fund.code,name:fund.name,type:fund.type,cls:fund.cls,nav:String(fund.nav||""),units:String(fund.units||""),cost:String(fund.cost||""),prevNav:fund.nav||0,month:curMonthLabel()});
+    setFundFormStatus(null); setSelFund(null);
+    setTab("investments"); setInvestSubTab("logfund");
   }
   async function submitFund(){
     const nav=parseFloat(fundForm.nav), units=parseFloat(fundForm.units), cost=parseFloat(fundForm.cost)||0;
+    const month = fundForm.month.trim()||curMonthLabel();
     if(!fundForm.code||!nav||!units) return;
     setFundFormStatus("saving");
     const value=nav*units;
     const daily_pct = fundFormMode==="edit" && fundForm.prevNav ? +(((nav-fundForm.prevNav)/fundForm.prevNav)*100).toFixed(2) : 0;
     const total_pct = cost ? +(((value-cost)/cost)*100).toFixed(2) : 0;
     const row = {
-      code:fundForm.code.trim(), name:fundForm.name.trim()||fundForm.code.trim(), type:fundForm.type, cls:fundForm.cls,
+      code:fundForm.code.trim(), month, name:fundForm.name.trim()||fundForm.code.trim(), type:fundForm.type, cls:fundForm.cls,
       value, cost, nav, nav_prev: fundFormMode==="edit" ? fundForm.prevNav : nav, units, daily_pct, total_pct,
     };
     try{
-      const { error } = fundFormMode==="edit"
-        ? await supabase.from("holdings").update(row).eq("id", fundForm.id)
-        : await supabase.from("holdings").insert(row);
+      const { error } = await supabase.from("holdings").upsert(row, { onConflict: "code,month" });
       if(error) throw error;
       setFundFormStatus("success");
-      setTimeout(()=>{setFundFormStatus(null); setFundFormOpen(false);},1000);
+      setTimeout(()=>{setFundFormStatus(null); setInvestSubTab(null);},1000);
       fetchAll(true);
     }catch(e){
       setFundFormStatus("error");
@@ -470,11 +493,11 @@ export default function App(){
   // ─── INCOME / GROSS / PVD EDITOR (per month, upserts into the spending table) ─────────
   // Employee & employer PVD% are separate fields since they diverge over time.
   const BLANK_INCOME = {month:"",income:"",budget:"",grossIncome:"",pvdEmployeePct:"",pvdEmployerPct:""};
-  const [incomeFormOpen,setIncomeFormOpen]=useState(false);
   const [incomeForm,setIncomeForm]=useState(BLANK_INCOME);
   const [incomeFormStatus,setIncomeFormStatus]=useState(null); // null | "saving" | "success" | "error"
   const [incomeMonthMode,setIncomeMonthMode]=useState("existing"); // "existing" | "new"
 
+  // Income edit is a standing tab page (planSubTab==="logincome"), same pattern as Log Expense.
   function openEditIncome(){
     const src = CM || spendingMonths[spendingMonths.length-1] || {};
     setIncomeForm({
@@ -487,7 +510,7 @@ export default function App(){
     });
     setIncomeMonthMode("existing");
     setIncomeFormStatus(null);
-    setIncomeFormOpen(true);
+    setTab("planning"); setPlanSubTab("logincome");
   }
   async function submitIncomeForm(){
     const month = incomeForm.month.trim();
@@ -505,7 +528,7 @@ export default function App(){
       );
       if(error) throw error;
       setIncomeFormStatus("success");
-      setTimeout(()=>{setIncomeFormStatus(null); setIncomeFormOpen(false);},1000);
+      setTimeout(()=>{setIncomeFormStatus(null); setPlanSubTab(null);},1000);
       fetchAll(true);
     }catch(e){
       setIncomeFormStatus("error");
@@ -514,8 +537,10 @@ export default function App(){
   }
 
   // ─── DEBT MANAGER (add / update debts) ──────────────────────────────────────
-  const BLANK_DEBT = {id:null,name:"",balance:"",rate:"",monthly:""};
-  const [debtFormOpen,setDebtFormOpen]=useState(false);
+  // Debts are now logged per month (like Spending): each "update balance" logs a fresh row
+  // for the current month instead of overwriting, so a payoff trend can be charted. Saving
+  // upserts on (name, month) — editing the same month again just corrects that entry.
+  const BLANK_DEBT = {id:null,name:"",balance:"",rate:"",monthly:"",month:""};
   const [debtFormMode,setDebtFormMode]=useState("add"); // "add" | "edit"
   const [debtForm,setDebtForm]=useState(BLANK_DEBT);
   const [debtFormStatus,setDebtFormStatus]=useState(null); // null | "saving" | "success" | "error"
@@ -526,16 +551,20 @@ export default function App(){
   const [investSubTab,setInvestSubTab]=useState(null);
   const [planSubTab,setPlanSubTab]=useState(null);
 
+  // Debt add/edit is a standing tab page (planSubTab==="logdebt"), same pattern as Log Expense.
   function openAddDebt(){
-    setDebtFormMode("add"); setDebtForm(BLANK_DEBT); setDebtFormStatus(null); setDebtFormOpen(true);
+    setDebtFormMode("add"); setDebtForm({...BLANK_DEBT, month: curMonthLabel()}); setDebtFormStatus(null);
+    setTab("planning"); setPlanSubTab("logdebt");
   }
   function openEditDebt(debt){
     setDebtFormMode("edit");
-    setDebtForm({id:debt.id,name:debt.name,balance:String(debt.balance||""),rate:String(debt.rate||""),monthly:String(debt.monthly||"")});
-    setDebtFormStatus(null); setDebtFormOpen(true);
+    setDebtForm({id:debt.id,name:debt.name,balance:String(debt.balance||""),rate:String(debt.rate||""),monthly:String(debt.monthly||""),month:curMonthLabel()});
+    setDebtFormStatus(null);
+    setTab("planning"); setPlanSubTab("logdebt");
   }
   async function submitDebtForm(){
     const balance=parseFloat(debtForm.balance), rate=parseFloat(debtForm.rate)||0, monthly=parseFloat(debtForm.monthly);
+    const month = debtForm.month.trim()||curMonthLabel();
     if(!debtForm.name.trim()||!balance||!monthly) return;
     setDebtFormStatus("saving");
     const monthlyRate = rate/100/12;
@@ -550,14 +579,12 @@ export default function App(){
     } else {
       years = +(balance/monthly/12).toFixed(1);
     }
-    const row = { name:debtForm.name.trim(), balance, rate, monthly, interest, principal, years };
+    const row = { name:debtForm.name.trim(), month, balance, rate, monthly, interest, principal, years };
     try{
-      const { error } = debtFormMode==="edit"
-        ? await supabase.from("debts").update(row).eq("id", debtForm.id)
-        : await supabase.from("debts").insert(row);
+      const { error } = await supabase.from("debts").upsert(row, { onConflict: "name,month" });
       if(error) throw error;
       setDebtFormStatus("success");
-      setTimeout(()=>{setDebtFormStatus(null); setDebtFormOpen(false);},1000);
+      setTimeout(()=>{setDebtFormStatus(null); setPlanSubTab(null);},1000);
       fetchAll(true);
     }catch(e){
       setDebtFormStatus("error");
@@ -601,12 +628,34 @@ export default function App(){
       const { data, error } = await supabase.from("holdings").select("*");
       if(error) throw error;
       setPortRaw(data); setPortErr(null);
-      if(data?.length){ setHoldings(data.map(mapHoldingRow)); live=true; }
+      if(data?.length){
+        const rows = data.map(mapHoldingRow);
+        setHoldingsHistory(rows);
+        // "Current" value per fund = its most recently logged month.
+        const byCode = {};
+        rows.forEach(r=>{
+          const cur = byCode[r.code];
+          if(!cur || monthRank(r.month)>=monthRank(cur.month)) byCode[r.code]=r;
+        });
+        setHoldings(Object.values(byCode));
+        live=true;
+      }
     }catch(e){setPortErr(String(e.message||e));}
     try{
       const { data, error } = await supabase.from("debts").select("*");
       if(error) throw error;
-      if(data?.length){ setDebts(data.map(mapDebtRow)); live=true; }
+      if(data?.length){
+        const rows = data.map(mapDebtRow);
+        setDebtHistory(rows);
+        // "Current" balance per debt = its most recently logged month.
+        const byName = {};
+        rows.forEach(r=>{
+          const cur = byName[r.name];
+          if(!cur || monthRank(r.month)>=monthRank(cur.month)) byName[r.name]=r;
+        });
+        setDebts(Object.values(byName));
+        live=true;
+      }
     }catch(e){setPortErr(p=>p||String(e.message||e));}
     try{
       const [{ data: spendRows, error: spendErr }, { data: txnRows, error: txnErr }] = await Promise.all([
@@ -2272,6 +2321,130 @@ export default function App(){
             })}
           </div>
           </>)}
+
+          {investSubTab==="logfund"&&(()=>{
+            const nav=parseFloat(fundForm.nav)||0, units=parseFloat(fundForm.units)||0, cost=parseFloat(fundForm.cost)||0;
+            const liveValue = nav*units;
+            const liveDaily = fundFormMode==="edit" && fundForm.prevNav ? ((nav-fundForm.prevNav)/fundForm.prevNav)*100 : 0;
+            const canSave = fundForm.code.trim() && nav>0 && units>0;
+            const codeQuery = fundForm.code.trim().toLowerCase();
+            const codeMatches = fundFormMode==="add" ? holdings.filter(h=>!codeQuery||h.code.toLowerCase().includes(codeQuery)).slice(0,6) : [];
+            const codeExact = codeQuery && holdings.some(h=>h.code.toLowerCase()===codeQuery);
+            // Months already logged for this fund, newest first, plus this month if new —
+            // same pattern as Debt, so the same code/month upsert corrects a month in place.
+            const loggedMonths = holdingsHistory.filter(h=>h.code===fundForm.code && h.month).map(h=>h.month);
+            const monthOptions = Array.from(new Set([curMonthLabel(), ...loggedMonths])).sort((a,b)=>monthRank(b)-monthRank(a));
+            return(
+            <div style={cardStyle}>
+              <div style={{marginBottom:16}}>
+                <div style={{fontSize:15,fontWeight:800,color:TH.text}}>{fundFormMode==="edit"?"Update Fund":"Add Fund"}</div>
+                <div style={{fontSize:11,color:TH.muted}}>{fundFormMode==="edit"?"Log this month's NAV, units or cost — tracks value & unrealized gain over time":"New holding for your portfolio"}</div>
+              </div>
+
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+                <div style={{position:"relative"}}>
+                  <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Fund Code</label>
+                  <input type="text" value={fundForm.code} disabled={fundFormMode==="edit"} autoComplete="off"
+                    onChange={e=>{setFundForm(f=>({...f,code:e.target.value})); setFundCodeOpen(true);}}
+                    onFocus={()=>fundFormMode==="add"&&setFundCodeOpen(true)}
+                    onBlur={()=>setTimeout(()=>setFundCodeOpen(false),150)}
+                    placeholder="e.g. SCBRM2 or search…"
+                    style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 12px",fontSize:13,color:fundFormMode==="edit"?TH.muted:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
+                  {fundFormMode==="add"&&fundCodeOpen&&codeMatches.length>0&&(
+                    <div style={{position:"absolute",top:"100%",left:0,right:0,marginTop:4,background:darkMode?"#0F1420":"#FFFFFF",border:`1px solid ${TH.border}`,borderRadius:12,boxShadow:"0 8px 24px rgba(0,0,0,0.4)",zIndex:20,maxHeight:180,overflowY:"auto"}}>
+                      {codeMatches.map((h,i)=>(
+                        <div key={h.id||h.code} onMouseDown={()=>{openEditFund(h); setFundCodeOpen(false);}}
+                          style={{padding:"9px 12px",cursor:"pointer",borderBottom:i<codeMatches.length-1?`1px solid ${TH.border}`:"none",display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
+                          <div style={{minWidth:0}}>
+                            <div style={{fontSize:12,fontWeight:700,color:TH.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{h.code}</div>
+                            <div style={{fontSize:10,color:TH.muted,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{h.name}</div>
+                          </div>
+                          <div style={{fontSize:9,color:TH.muted,flexShrink:0,fontWeight:600}}>{h.type}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {fundFormMode==="add"&&codeQuery&&!codeExact&&codeMatches.length===0&&(
+                    <div style={{marginTop:5,fontSize:10,color:TH.muted}}>No match — this will add a new fund "{fundForm.code.trim()}"</div>
+                  )}
+                </div>
+                <div>
+                  <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Name</label>
+                  <input type="text" value={fundForm.name}
+                    onChange={e=>setFundForm(f=>({...f,name:e.target.value}))} placeholder="Optional"
+                    style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 12px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
+                </div>
+              </div>
+
+              <div style={{marginBottom:10}}>
+                <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Month</label>
+                <select value={fundForm.month} onChange={e=>setFundForm(f=>({...f,month:e.target.value}))}
+                  style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 12px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}>
+                  {monthOptions.map(m=>(
+                    <option key={m} value={m}>{m}{m===curMonthLabel()?" (this month)":loggedMonths.includes(m)?" (already logged — will update)":""}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div style={{marginBottom:10}}>
+                <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Type</label>
+                <div style={{display:"flex",gap:8,marginTop:5}}>
+                  {["Personal","Retirement"].map(t=>(
+                    <button key={t} type="button" onClick={()=>setFundForm(f=>({...f,type:t}))}
+                      style={{flex:1,padding:"10px 0",borderRadius:12,fontSize:12,fontWeight:700,cursor:"pointer",border:fundForm.type===t?`1.5px solid ${TH.accent}`:`1px solid ${TH.border}`,background:fundForm.type===t?`${TH.accent}1A`:TH.surf,color:fundForm.type===t?TH.text:TH.text2}}>{t}</button>
+                  ))}
+                </div>
+              </div>
+
+              <div style={{marginBottom:14}}>
+                <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Asset Class</label>
+                <select value={fundForm.cls} onChange={e=>setFundForm(f=>({...f,cls:e.target.value}))}
+                  style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 12px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit"}}>
+                  {Object.keys(CLS_COLOR).map(c=><option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:14}}>
+                <div>
+                  <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>NAV (฿)</label>
+                  <input type="number" min="0" step="0.0001" inputMode="decimal" value={fundForm.nav}
+                    onChange={e=>setFundForm(f=>({...f,nav:e.target.value}))} placeholder="0.00"
+                    style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 8px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
+                </div>
+                <div>
+                  <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Units</label>
+                  <input type="number" min="0" step="0.01" inputMode="decimal" value={fundForm.units}
+                    onChange={e=>setFundForm(f=>({...f,units:e.target.value}))} placeholder="0.00"
+                    style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 8px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
+                </div>
+                <div>
+                  <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Cost (฿)</label>
+                  <input type="number" min="0" step="0.01" inputMode="decimal" value={fundForm.cost}
+                    onChange={e=>setFundForm(f=>({...f,cost:e.target.value}))} placeholder="0.00"
+                    style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 8px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
+                </div>
+              </div>
+
+              {nav>0&&units>0&&(
+                <div style={{background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"10px 14px",marginBottom:14,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <div><div style={{fontSize:9,color:TH.muted,fontWeight:600}}>VALUE</div><div style={{fontSize:14,fontWeight:800,color:TH.text,fontFamily:TH.mono}}>{fmt(liveValue)}</div></div>
+                  {fundFormMode==="edit"&&fundForm.prevNav>0&&<div style={{textAlign:"right"}}><div style={{fontSize:9,color:TH.muted,fontWeight:600}}>DAILY CHANGE</div><div style={{fontSize:14,fontWeight:800,color:liveDaily>=0?"#4ADE80":"#F87171",fontFamily:TH.mono}}>{liveDaily>=0?"+":""}{liveDaily.toFixed(2)}%</div></div>}
+                </div>
+              )}
+
+              {fundFormStatus==="saving"&&<div style={{textAlign:"center",fontSize:12,color:TH.muted,marginBottom:10}}>Saving…</div>}
+              {fundFormStatus==="success"&&<div style={{textAlign:"center",fontSize:12,color:"#4ADE80",marginBottom:10}}>✓ Saved!</div>}
+              {fundFormStatus==="error"&&<div style={{textAlign:"center",fontSize:12,color:"#F87171",marginBottom:10}}>Failed to save — check connection</div>}
+
+              <button
+                onClick={submitFund}
+                disabled={!canSave||fundFormStatus==="saving"}
+                style={{width:"100%",padding:14,borderRadius:12,fontWeight:700,fontSize:13,background:canSave?"linear-gradient(135deg,#6366F1,#38BDF8)":"rgba(255,255,255,0.06)",border:"none",color:canSave?"white":"#4B5563",cursor:canSave?"pointer":"default"}}>
+                {fundFormMode==="edit"?"Save Changes":"Add Fund"}
+              </button>
+            </div>
+            );
+          })()}
           </>
           )}
         </div>)}
@@ -2743,16 +2916,41 @@ export default function App(){
                       <ChevronRight size={13} color={TH.dim} style={{transform:open?"rotate(90deg)":"none",transition:"transform .2s"}}/>
                     </div>
                   </div>
-                  {open&&(
-                    <div style={{padding:"10px 0",borderBottom:`1px solid ${TH.border}`,display:"grid",gridTemplateColumns:"1fr 1fr",gap:7,animation:"fadeIn .2s ease-out"}}>
-                      {[{l:"Monthly Interest",v:fmt(d.interest)},{l:"Principal",v:fmt(d.principal)},{l:"Rate",v:`${d.rate}%`},{l:"Years Left",v:`${d.years}yr`}].map((s,j)=>(
-                        <div key={j} style={{background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:9,padding:"8px 10px"}}>
-                          <div style={{fontSize:9,color:TH.muted,marginBottom:2}}>{s.l}</div>
-                          <div style={{fontSize:12,fontWeight:700,color:TH.text2,fontFamily:TH.mono}}>{s.v}</div>
+                  {open&&(()=>{
+                    const hist = debtHistory.filter(h=>h.name===d.name).sort((a,b)=>monthRank(a.month)-monthRank(b.month));
+                    return(
+                    <div style={{padding:"10px 0",borderBottom:`1px solid ${TH.border}`,animation:"fadeIn .2s ease-out"}}>
+                      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7,marginBottom:hist.length>=2?12:0}}>
+                        {[{l:"Monthly Interest",v:fmt(d.interest)},{l:"Principal",v:fmt(d.principal)},{l:"Rate",v:`${d.rate}%`},{l:"Years Left",v:`${d.years}yr`}].map((s,j)=>(
+                          <div key={j} style={{background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:9,padding:"8px 10px"}}>
+                            <div style={{fontSize:9,color:TH.muted,marginBottom:2}}>{s.l}</div>
+                            <div style={{fontSize:12,fontWeight:700,color:TH.text2,fontFamily:TH.mono}}>{s.v}</div>
+                          </div>
+                        ))}
+                      </div>
+                      {hist.length>=2?(
+                        <div>
+                          <div style={{fontSize:9,fontWeight:700,color:TH.muted,marginBottom:6,textTransform:"uppercase",letterSpacing:".05em"}}>Payoff Trend</div>
+                          <ResponsiveContainer width="100%" height={70}>
+                            <AreaChart data={hist} margin={{top:2,right:2,left:0,bottom:0}}>
+                              <defs>
+                                <linearGradient id={`debtGrad${i}`} x1="0" y1="0" x2="0" y2="1">
+                                  <stop offset="5%" stopColor="#F87171" stopOpacity={0.25}/>
+                                  <stop offset="95%" stopColor="#F87171" stopOpacity={0}/>
+                                </linearGradient>
+                              </defs>
+                              <XAxis dataKey="month" tick={{fontSize:8,fill:TH.muted}} axisLine={false} tickLine={false}/>
+                              <Tooltip formatter={(v)=>[`฿${Math.round(v).toLocaleString()}`,"Balance"]} contentStyle={{background:darkMode?"#0D1117":"#fff",border:`1px solid ${TH.border}`,borderRadius:10,fontSize:10}}/>
+                              <Area type="monotone" dataKey="balance" stroke="#F87171" strokeWidth={2} fill={`url(#debtGrad${i})`} dot={{fill:"#F87171",r:3}}/>
+                            </AreaChart>
+                          </ResponsiveContainer>
                         </div>
-                      ))}
+                      ):(
+                        <div style={{fontSize:9,color:TH.muted,fontStyle:"italic"}}>Log next month's balance to start tracking the payoff trend.</div>
+                      )}
                     </div>
-                  )}
+                    );
+                  })()}
                 </div>
               );
             })}
@@ -2762,6 +2960,82 @@ export default function App(){
             </div>
           </div>
           </>)}
+
+          {planSubTab==="logdebt"&&(()=>{
+            const balance=parseFloat(debtForm.balance)||0, rate=parseFloat(debtForm.rate)||0, monthly=parseFloat(debtForm.monthly)||0;
+            const monthlyRate = rate/100/12;
+            const liveInterest = balance*monthlyRate;
+            const livePrincipal = monthly-liveInterest;
+            const canSave = debtForm.name.trim() && balance>0 && monthly>0;
+            // Months already logged for this debt, newest first, plus the current month if it's
+            // not in there yet — lets her backfill/correct a past month or just log this one.
+            const loggedMonths = debtHistory.filter(h=>h.name===debtForm.name && h.month).map(h=>h.month);
+            const monthOptions = Array.from(new Set([curMonthLabel(), ...loggedMonths])).sort((a,b)=>monthRank(b)-monthRank(a));
+            return(
+            <div style={cardStyle}>
+              <div style={{marginBottom:16}}>
+                <div style={{fontSize:15,fontWeight:800,color:TH.text}}>{debtFormMode==="edit"?"Update Balance":"Add Debt"}</div>
+                <div style={{fontSize:11,color:TH.muted}}>{debtFormMode==="edit"?"Log this month's balance to track your payoff":"New loan or debt to track"}</div>
+              </div>
+
+              <div style={{marginBottom:10}}>
+                <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Debt Name</label>
+                <input type="text" value={debtForm.name} disabled={debtFormMode==="edit"}
+                  onChange={e=>setDebtForm(f=>({...f,name:e.target.value}))} placeholder="e.g. Car Loan"
+                  style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 12px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box",opacity:debtFormMode==="edit"?0.7:1}}/>
+              </div>
+
+              <div style={{marginBottom:10}}>
+                <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Month</label>
+                <select value={debtForm.month} onChange={e=>setDebtForm(f=>({...f,month:e.target.value}))}
+                  style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 12px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}>
+                  {monthOptions.map(m=>(
+                    <option key={m} value={m}>{m}{m===curMonthLabel()?" (this month)":loggedMonths.includes(m)?" (already logged — will update)":""}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:14}}>
+                <div>
+                  <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Balance (฿)</label>
+                  <input type="number" min="0" step="0.01" inputMode="decimal" value={debtForm.balance}
+                    onChange={e=>setDebtForm(f=>({...f,balance:e.target.value}))} placeholder="0.00"
+                    style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 8px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
+                </div>
+                <div>
+                  <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Rate (%)</label>
+                  <input type="number" min="0" step="0.01" inputMode="decimal" value={debtForm.rate}
+                    onChange={e=>setDebtForm(f=>({...f,rate:e.target.value}))} placeholder="0.00"
+                    style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 8px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
+                </div>
+                <div>
+                  <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Monthly (฿)</label>
+                  <input type="number" min="0" step="0.01" inputMode="decimal" value={debtForm.monthly}
+                    onChange={e=>setDebtForm(f=>({...f,monthly:e.target.value}))} placeholder="0.00"
+                    style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 8px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
+                </div>
+              </div>
+
+              {balance>0&&monthly>0&&(
+                <div style={{background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"10px 14px",marginBottom:14,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <div><div style={{fontSize:9,color:TH.muted,fontWeight:600}}>MONTHLY INTEREST</div><div style={{fontSize:14,fontWeight:800,color:TH.red,fontFamily:TH.mono}}>{fmt(Math.round(liveInterest))}</div></div>
+                  <div style={{textAlign:"right"}}><div style={{fontSize:9,color:TH.muted,fontWeight:600}}>PRINCIPAL</div><div style={{fontSize:14,fontWeight:800,color:TH.green,fontFamily:TH.mono}}>{fmt(Math.round(livePrincipal))}</div></div>
+                </div>
+              )}
+
+              {debtFormStatus==="saving"&&<div style={{textAlign:"center",fontSize:12,color:TH.muted,marginBottom:10}}>Saving…</div>}
+              {debtFormStatus==="success"&&<div style={{textAlign:"center",fontSize:12,color:"#4ADE80",marginBottom:10}}>✓ Saved!</div>}
+              {debtFormStatus==="error"&&<div style={{textAlign:"center",fontSize:12,color:"#F87171",marginBottom:10}}>Failed to save — check connection</div>}
+
+              <button
+                onClick={submitDebtForm}
+                disabled={!canSave||debtFormStatus==="saving"}
+                style={{width:"100%",padding:14,borderRadius:12,fontWeight:700,fontSize:13,background:canSave?"linear-gradient(135deg,#F87171,#FB923C)":"rgba(255,255,255,0.06)",border:"none",color:canSave?"white":"#4B5563",cursor:canSave?"pointer":"default"}}>
+                {debtFormMode==="edit"?"Save Changes":"Add Debt"}
+              </button>
+            </div>
+            );
+          })()}
 
           {planSubTab==="income"&&(<>
           <div style={cardStyle}>
@@ -2807,6 +3081,109 @@ export default function App(){
             ))}
           </div>
           </>)}
+
+          {planSubTab==="logincome"&&(()=>{
+            const existingMonths = spendingMonths.map(m=>m.m);
+            const canSave = incomeForm.month.trim() && parseFloat(incomeForm.income)>0;
+            return(
+            <div style={cardStyle}>
+              <div style={{marginBottom:16}}>
+                <div style={{fontSize:15,fontWeight:800,color:TH.text}}>Edit Income</div>
+                <div style={{fontSize:11,color:TH.muted}}>Net income, gross salary & PVD% — feeds Cash Flow, Savings Rate and Retirement projections</div>
+              </div>
+
+              <div style={{marginBottom:10}}>
+                <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Month</label>
+                {incomeMonthMode==="existing"?(
+                  <select value={incomeForm.month} onChange={e=>{
+                      const m=e.target.value;
+                      if(m==="__new__"){ setIncomeMonthMode("new"); setIncomeForm(f=>({...f,month:""})); return; }
+                      const src = spendingMonths.find(sm=>sm.m===m);
+                      setIncomeForm({
+                        month:m, income:String(src?.income??""), budget:String(src?.budget??""),
+                        grossIncome:String(src?.grossIncome||latestGrossIncome||""),
+                        pvdEmployeePct:String(src?.pvdEmployeePct!=null?src.pvdEmployeePct:(latestEmployeePvdPct!=null?latestEmployeePvdPct:12)),
+                        pvdEmployerPct:String(src?.pvdEmployerPct!=null?src.pvdEmployerPct:(latestEmployerPvdPct!=null?latestEmployerPvdPct:12)),
+                      });
+                    }}
+                    style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 12px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit"}}>
+                    {existingMonths.map(m=><option key={m} value={m}>{m}</option>)}
+                    <option value="__new__">+ New month…</option>
+                  </select>
+                ):(
+                  <div style={{display:"flex",gap:8,marginTop:5}}>
+                    <input type="text" value={incomeForm.month} autoFocus
+                      onChange={e=>setIncomeForm(f=>({...f,month:e.target.value}))} placeholder="e.g. Oct 2026"
+                      style={{flex:1,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 12px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
+                    <button onClick={()=>{setIncomeMonthMode("existing"); setIncomeForm(f=>({...f,month:CM?.m||existingMonths[existingMonths.length-1]||""}));}}
+                      style={{fontSize:11,fontWeight:600,color:TH.muted,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:10,padding:"0 12px",cursor:"pointer"}}>Cancel</button>
+                  </div>
+                )}
+              </div>
+
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+                <div>
+                  <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Net Income (฿)</label>
+                  <input type="number" min="0" step="1" inputMode="decimal" value={incomeForm.income}
+                    onChange={e=>setIncomeForm(f=>({...f,income:e.target.value}))} placeholder="e.g. 73897"
+                    style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 12px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
+                </div>
+                <div>
+                  <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Budget (฿)</label>
+                  <input type="number" min="0" step="1" inputMode="decimal" value={incomeForm.budget}
+                    onChange={e=>setIncomeForm(f=>({...f,budget:e.target.value}))} placeholder="e.g. 68868"
+                    style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 12px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
+                </div>
+              </div>
+
+              <div style={{marginBottom:10}}>
+                <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Gross Salary (฿)</label>
+                <input type="number" min="0" step="1" inputMode="decimal" value={incomeForm.grossIncome}
+                  onChange={e=>setIncomeForm(f=>({...f,grossIncome:e.target.value}))} placeholder="e.g. 88733"
+                  style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 12px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
+              </div>
+
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
+                <div>
+                  <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Your PVD %</label>
+                  <input type="number" min="0" max="100" step="0.5" inputMode="decimal" value={incomeForm.pvdEmployeePct}
+                    onChange={e=>setIncomeForm(f=>({...f,pvdEmployeePct:e.target.value}))} placeholder="e.g. 12"
+                    style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 12px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
+                </div>
+                <div>
+                  <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Employer PVD %</label>
+                  <input type="number" min="0" max="100" step="0.5" inputMode="decimal" value={incomeForm.pvdEmployerPct}
+                    onChange={e=>setIncomeForm(f=>({...f,pvdEmployerPct:e.target.value}))} placeholder="e.g. 12"
+                    style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 12px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
+                </div>
+              </div>
+
+              {parseFloat(incomeForm.grossIncome)>0&&(parseFloat(incomeForm.pvdEmployeePct)>=0||parseFloat(incomeForm.pvdEmployerPct)>=0)&&(()=>{
+                const g=parseFloat(incomeForm.grossIncome)||0;
+                const yourPvd=Math.round(g*(parseFloat(incomeForm.pvdEmployeePct)||0)/100);
+                const employerPvd=Math.round(g*(parseFloat(incomeForm.pvdEmployerPct)||0)/100);
+                return(
+                <div style={{background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"10px 14px",marginBottom:14}}>
+                  <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}><span style={{fontSize:10,color:TH.muted}}>Your PVD/mo</span><span style={{fontSize:13,fontWeight:700,color:TH.text,fontFamily:TH.mono}}>{fmt(yourPvd)}</span></div>
+                  <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}><span style={{fontSize:10,color:TH.muted}}>Employer PVD/mo</span><span style={{fontSize:13,fontWeight:700,color:TH.green,fontFamily:TH.mono}}>{fmt(employerPvd)}</span></div>
+                  <div style={{display:"flex",justifyContent:"space-between",paddingTop:6,borderTop:`1px solid ${TH.border}`}}><span style={{fontSize:10,fontWeight:700,color:TH.muted}}>Total PVD/mo</span><span style={{fontSize:14,fontWeight:800,color:TH.text,fontFamily:TH.mono}}>{fmt(yourPvd+employerPvd)}</span></div>
+                </div>
+                );
+              })()}
+
+              {incomeFormStatus==="saving"&&<div style={{textAlign:"center",fontSize:12,color:TH.muted,marginBottom:10}}>Saving…</div>}
+              {incomeFormStatus==="success"&&<div style={{textAlign:"center",fontSize:12,color:"#4ADE80",marginBottom:10}}>✓ Saved!</div>}
+              {incomeFormStatus==="error"&&<div style={{textAlign:"center",fontSize:12,color:"#F87171",marginBottom:10}}>Failed to save — check connection</div>}
+
+              <button
+                onClick={submitIncomeForm}
+                disabled={!canSave||incomeFormStatus==="saving"}
+                style={{width:"100%",padding:14,borderRadius:12,fontWeight:700,fontSize:13,background:canSave?"linear-gradient(135deg,#6366F1,#38BDF8)":"rgba(255,255,255,0.06)",border:"none",color:canSave?"white":"#4B5563",cursor:canSave?"pointer":"default"}}>
+                Save
+              </button>
+            </div>
+            );
+          })()}
 
           {planSubTab==="retirement"&&(<>
           <div style={cardStyle}>
@@ -3228,7 +3605,7 @@ export default function App(){
         <div style={{position:"fixed",inset:0,zIndex:200}} onClick={()=>setQuickMenu(false)}>
           <div style={{position:"absolute",bottom:90,left:"50%",transform:"translateX(-50%)",display:"flex",flexDirection:"column",gap:8,alignItems:"center",animation:"slideUp .2s ease-out"}}>
             <div style={{fontSize:10,fontWeight:600,color:"rgba(255,255,255,0.4)",marginBottom:2,letterSpacing:".05em"}}>QUICK ACTIONS</div>
-            <button onClick={(e)=>{e.stopPropagation();setQuickMenu(false);setExpenseFormOpen(true);setExpenseFormStatus(null);}}
+            <button onClick={(e)=>{e.stopPropagation();setQuickMenu(false);setExpenseFormStatus(null);setTab("spending");setSpendSubTab("logexpense");}}
               style={{display:"flex",alignItems:"center",gap:10,background:"#0A0E1A",border:"1px solid rgba(99,102,241,0.3)",borderRadius:14,padding:"11px 18px",cursor:"pointer",minWidth:200,boxShadow:"0 8px 32px rgba(0,0,0,0.4)"}}>
               <div style={{width:32,height:32,borderRadius:10,background:"rgba(56,189,248,0.15)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>📝</div>
               <div style={{textAlign:"left"}}>
@@ -3258,380 +3635,6 @@ export default function App(){
           </div>
         </div>
       )}
-
-      {/* ADD EXPENSE FORM MODAL */}
-      {expenseFormOpen&&(
-        <div style={{position:"fixed",inset:0,zIndex:300,display:"flex",alignItems:"flex-end"}} onClick={()=>setExpenseFormOpen(false)}>
-          <div onClick={e=>e.stopPropagation()} style={{width:"100%",maxWidth:480,margin:"0 auto",maxHeight:"88vh",overflowY:"auto",background:darkMode?"#0A0E1A":"#FFFFFF",borderRadius:"24px 24px 0 0",padding:"20px 20px 32px",boxShadow:"0 -8px 40px rgba(0,0,0,0.5)",animation:"slideUp .25s cubic-bezier(.16,1,.3,1)"}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18}}>
-              <div>
-                <div style={{fontSize:15,fontWeight:800,color:TH.text}}>Add Expense</div>
-                <div style={{fontSize:11,color:TH.muted}}>Pick a category, enter the amount</div>
-              </div>
-              <button onClick={()=>setExpenseFormOpen(false)} style={{background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:10,width:30,height:30,color:TH.muted,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}><X size={14}/></button>
-            </div>
-
-            {/* Hero amount */}
-            <div style={{background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:16,padding:"16px 18px",marginBottom:18,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
-              <span style={{fontSize:22,fontWeight:700,color:TH.muted}}>฿</span>
-              <input
-                type="number" min="0" step="0.01" inputMode="decimal" autoFocus
-                value={expenseForm.amount}
-                onChange={e=>setExpenseForm(f=>({...f,amount:e.target.value}))}
-                placeholder="0.00"
-                style={{flex:1,minWidth:0,textAlign:"center",background:"transparent",border:"none",fontSize:32,fontWeight:800,color:TH.text,outline:"none",fontFamily:"inherit"}}
-              />
-            </div>
-
-            {/* Category grid */}
-            <div style={{fontSize:11,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em",marginBottom:9}}>Category</div>
-            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:18}}>
-              {CAT_GRID_ORDER.map(c=>{
-                const Icon = CAT_ICON[c]||MoreHorizontal;
-                const color = CAT_COLOR[c]||TH.accent;
-                const active = expenseForm.category===c;
-                return (
-                  <button key={c} type="button" onClick={()=>setExpenseForm(f=>({...f,category:c}))}
-                    style={{display:"flex",flexDirection:"column",alignItems:"center",gap:7,padding:"13px 4px",borderRadius:14,border:active?`1.5px solid ${color}`:`1px solid ${TH.border}`,background:active?`${color}1A`:TH.surf,cursor:"pointer",transition:"all .12s"}}>
-                    <div style={{width:42,height:42,borderRadius:12,background:`${color}22`,display:"flex",alignItems:"center",justifyContent:"center"}}>
-                      <Icon size={20} color={color}/>
-                    </div>
-                    <div style={{fontSize:13,fontWeight:700,color:active?TH.text:TH.text2,textAlign:"center",lineHeight:1.2}}>{c}</div>
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* Date + Note — stacked, not side-by-side: a locale-formatted date (e.g. "16 Sep BE 2569")
-                is too long to safely share a half-width column on every device. */}
-            <div style={{display:"flex",flexDirection:"column",gap:12,marginBottom:16}}>
-              <div>
-                <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Date</label>
-                <input
-                  type="date"
-                  value={expenseForm.date}
-                  onChange={e=>setExpenseForm(f=>({...f,date:e.target.value}))}
-                  style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 12px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box",colorScheme:darkMode?"dark":"light",WebkitAppearance:"none",appearance:"none"}}
-                />
-              </div>
-              <div>
-                <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Note</label>
-                <input
-                  type="text"
-                  value={expenseForm.note}
-                  onChange={e=>setExpenseForm(f=>({...f,note:e.target.value}))}
-                  placeholder="Optional"
-                  style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 12px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}
-                />
-              </div>
-            </div>
-
-            {expenseFormStatus==="saving"&&<div style={{textAlign:"center",fontSize:12,color:TH.muted,marginBottom:10}}>Saving…</div>}
-            {expenseFormStatus==="success"&&<div style={{textAlign:"center",fontSize:12,color:"#4ADE80",marginBottom:10}}>✓ Expense added!</div>}
-            {expenseFormStatus==="error"&&<div style={{textAlign:"center",fontSize:12,color:"#F87171",marginBottom:10}}>Failed to save — check connection</div>}
-
-            <button
-              onClick={submitExpenseForm}
-              disabled={!expenseForm.amount||expenseFormStatus==="saving"}
-              style={{width:"100%",padding:14,borderRadius:12,fontWeight:700,fontSize:13,background:expenseForm.amount?`linear-gradient(135deg,${CAT_COLOR[expenseForm.category]||"#6366F1"},#38BDF8)`:"rgba(255,255,255,0.06)",border:"none",color:expenseForm.amount?"white":"#4B5563",cursor:expenseForm.amount?"pointer":"default"}}>
-              Save Expense
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* ADD / EDIT FUND MODAL */}
-      {fundFormOpen&&(()=>{
-        const nav=parseFloat(fundForm.nav)||0, units=parseFloat(fundForm.units)||0, cost=parseFloat(fundForm.cost)||0;
-        const liveValue = nav*units;
-        const liveDaily = fundFormMode==="edit" && fundForm.prevNav ? ((nav-fundForm.prevNav)/fundForm.prevNav)*100 : 0;
-        const canSave = fundForm.code.trim() && nav>0 && units>0;
-        const codeQuery = fundForm.code.trim().toLowerCase();
-        const codeMatches = fundFormMode==="add" ? holdings.filter(h=>!codeQuery||h.code.toLowerCase().includes(codeQuery)).slice(0,6) : [];
-        const codeExact = codeQuery && holdings.some(h=>h.code.toLowerCase()===codeQuery);
-        return(
-        <div style={{position:"fixed",inset:0,zIndex:300,display:"flex",alignItems:"flex-end"}} onClick={()=>setFundFormOpen(false)}>
-          <div onClick={e=>e.stopPropagation()} style={{width:"100%",maxWidth:480,margin:"0 auto",maxHeight:"88vh",overflowY:"auto",background:darkMode?"#0A0E1A":"#FFFFFF",borderRadius:"24px 24px 0 0",padding:"20px 20px 32px",boxShadow:"0 -8px 40px rgba(0,0,0,0.5)",animation:"slideUp .25s cubic-bezier(.16,1,.3,1)"}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
-              <div>
-                <div style={{fontSize:15,fontWeight:800,color:TH.text}}>{fundFormMode==="edit"?"Edit Fund":"Add Fund"}</div>
-                <div style={{fontSize:11,color:TH.muted}}>{fundFormMode==="edit"?"Update NAV, units or cost":"New holding for your portfolio"}</div>
-              </div>
-              <button onClick={()=>setFundFormOpen(false)} style={{background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:10,width:30,height:30,color:TH.muted,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}><X size={14}/></button>
-            </div>
-
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
-              <div style={{position:"relative"}}>
-                <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Fund Code</label>
-                <input type="text" value={fundForm.code} disabled={fundFormMode==="edit"} autoComplete="off"
-                  onChange={e=>{setFundForm(f=>({...f,code:e.target.value})); setFundCodeOpen(true);}}
-                  onFocus={()=>fundFormMode==="add"&&setFundCodeOpen(true)}
-                  onBlur={()=>setTimeout(()=>setFundCodeOpen(false),150)}
-                  placeholder="e.g. SCBRM2 or search…"
-                  style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 12px",fontSize:13,color:fundFormMode==="edit"?TH.muted:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
-                {fundFormMode==="add"&&fundCodeOpen&&codeMatches.length>0&&(
-                  <div style={{position:"absolute",top:"100%",left:0,right:0,marginTop:4,background:darkMode?"#0F1420":"#FFFFFF",border:`1px solid ${TH.border}`,borderRadius:12,boxShadow:"0 8px 24px rgba(0,0,0,0.4)",zIndex:20,maxHeight:180,overflowY:"auto"}}>
-                    {codeMatches.map((h,i)=>(
-                      <div key={h.id||h.code} onMouseDown={()=>{openEditFund(h); setFundCodeOpen(false);}}
-                        style={{padding:"9px 12px",cursor:"pointer",borderBottom:i<codeMatches.length-1?`1px solid ${TH.border}`:"none",display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
-                        <div style={{minWidth:0}}>
-                          <div style={{fontSize:12,fontWeight:700,color:TH.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{h.code}</div>
-                          <div style={{fontSize:10,color:TH.muted,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{h.name}</div>
-                        </div>
-                        <div style={{fontSize:9,color:TH.muted,flexShrink:0,fontWeight:600}}>{h.type}</div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                {fundFormMode==="add"&&codeQuery&&!codeExact&&codeMatches.length===0&&(
-                  <div style={{marginTop:5,fontSize:10,color:TH.muted}}>No match — this will add a new fund "{fundForm.code.trim()}"</div>
-                )}
-              </div>
-              <div>
-                <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Name</label>
-                <input type="text" value={fundForm.name}
-                  onChange={e=>setFundForm(f=>({...f,name:e.target.value}))} placeholder="Optional"
-                  style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 12px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
-              </div>
-            </div>
-
-            <div style={{marginBottom:10}}>
-              <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Type</label>
-              <div style={{display:"flex",gap:8,marginTop:5}}>
-                {["Personal","Retirement"].map(t=>(
-                  <button key={t} type="button" onClick={()=>setFundForm(f=>({...f,type:t}))}
-                    style={{flex:1,padding:"10px 0",borderRadius:12,fontSize:12,fontWeight:700,cursor:"pointer",border:fundForm.type===t?`1.5px solid ${TH.accent}`:`1px solid ${TH.border}`,background:fundForm.type===t?`${TH.accent}1A`:TH.surf,color:fundForm.type===t?TH.text:TH.text2}}>{t}</button>
-                ))}
-              </div>
-            </div>
-
-            <div style={{marginBottom:14}}>
-              <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Asset Class</label>
-              <select value={fundForm.cls} onChange={e=>setFundForm(f=>({...f,cls:e.target.value}))}
-                style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 12px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit"}}>
-                {Object.keys(CLS_COLOR).map(c=><option key={c} value={c}>{c}</option>)}
-              </select>
-            </div>
-
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:14}}>
-              <div>
-                <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>NAV (฿)</label>
-                <input type="number" min="0" step="0.0001" inputMode="decimal" value={fundForm.nav}
-                  onChange={e=>setFundForm(f=>({...f,nav:e.target.value}))} placeholder="0.00"
-                  style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 8px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
-              </div>
-              <div>
-                <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Units</label>
-                <input type="number" min="0" step="0.01" inputMode="decimal" value={fundForm.units}
-                  onChange={e=>setFundForm(f=>({...f,units:e.target.value}))} placeholder="0.00"
-                  style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 8px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
-              </div>
-              <div>
-                <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Cost (฿)</label>
-                <input type="number" min="0" step="0.01" inputMode="decimal" value={fundForm.cost}
-                  onChange={e=>setFundForm(f=>({...f,cost:e.target.value}))} placeholder="0.00"
-                  style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 8px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
-              </div>
-            </div>
-
-            {nav>0&&units>0&&(
-              <div style={{background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"10px 14px",marginBottom:14,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                <div><div style={{fontSize:9,color:TH.muted,fontWeight:600}}>VALUE</div><div style={{fontSize:14,fontWeight:800,color:TH.text,fontFamily:TH.mono}}>{fmt(liveValue)}</div></div>
-                {fundFormMode==="edit"&&fundForm.prevNav>0&&<div style={{textAlign:"right"}}><div style={{fontSize:9,color:TH.muted,fontWeight:600}}>DAILY CHANGE</div><div style={{fontSize:14,fontWeight:800,color:liveDaily>=0?"#4ADE80":"#F87171",fontFamily:TH.mono}}>{liveDaily>=0?"+":""}{liveDaily.toFixed(2)}%</div></div>}
-              </div>
-            )}
-
-            {fundFormStatus==="saving"&&<div style={{textAlign:"center",fontSize:12,color:TH.muted,marginBottom:10}}>Saving…</div>}
-            {fundFormStatus==="success"&&<div style={{textAlign:"center",fontSize:12,color:"#4ADE80",marginBottom:10}}>✓ Saved!</div>}
-            {fundFormStatus==="error"&&<div style={{textAlign:"center",fontSize:12,color:"#F87171",marginBottom:10}}>Failed to save — check connection</div>}
-
-            <button
-              onClick={submitFund}
-              disabled={!canSave||fundFormStatus==="saving"}
-              style={{width:"100%",padding:14,borderRadius:12,fontWeight:700,fontSize:13,background:canSave?"linear-gradient(135deg,#6366F1,#38BDF8)":"rgba(255,255,255,0.06)",border:"none",color:canSave?"white":"#4B5563",cursor:canSave?"pointer":"default"}}>
-              {fundFormMode==="edit"?"Save Changes":"Add Fund"}
-            </button>
-          </div>
-        </div>
-        );
-      })()}
-
-      {/* EDIT INCOME / GROSS / PVD MODAL */}
-      {incomeFormOpen&&(()=>{
-        const existingMonths = spendingMonths.map(m=>m.m);
-        const canSave = incomeForm.month.trim() && parseFloat(incomeForm.income)>0;
-        return(
-        <div style={{position:"fixed",inset:0,zIndex:300,display:"flex",alignItems:"flex-end"}} onClick={()=>setIncomeFormOpen(false)}>
-          <div onClick={e=>e.stopPropagation()} style={{width:"100%",maxWidth:480,margin:"0 auto",maxHeight:"88vh",overflowY:"auto",background:darkMode?"#0A0E1A":"#FFFFFF",borderRadius:"24px 24px 0 0",padding:"20px 20px 32px",boxShadow:"0 -8px 40px rgba(0,0,0,0.5)",animation:"slideUp .25s cubic-bezier(.16,1,.3,1)"}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
-              <div>
-                <div style={{fontSize:15,fontWeight:800,color:TH.text}}>Edit Income</div>
-                <div style={{fontSize:11,color:TH.muted}}>Net income, gross salary & PVD% — feeds Cash Flow, Savings Rate and Retirement projections</div>
-              </div>
-              <button onClick={()=>setIncomeFormOpen(false)} style={{background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:10,width:30,height:30,color:TH.muted,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><X size={14}/></button>
-            </div>
-
-            <div style={{marginBottom:10}}>
-              <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Month</label>
-              {incomeMonthMode==="existing"?(
-                <select value={incomeForm.month} onChange={e=>{
-                    const m=e.target.value;
-                    if(m==="__new__"){ setIncomeMonthMode("new"); setIncomeForm(f=>({...f,month:""})); return; }
-                    const src = spendingMonths.find(sm=>sm.m===m);
-                    setIncomeForm({
-                      month:m, income:String(src?.income??""), budget:String(src?.budget??""),
-                      grossIncome:String(src?.grossIncome||latestGrossIncome||""),
-                      pvdEmployeePct:String(src?.pvdEmployeePct!=null?src.pvdEmployeePct:(latestEmployeePvdPct!=null?latestEmployeePvdPct:12)),
-                      pvdEmployerPct:String(src?.pvdEmployerPct!=null?src.pvdEmployerPct:(latestEmployerPvdPct!=null?latestEmployerPvdPct:12)),
-                    });
-                  }}
-                  style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 12px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit"}}>
-                  {existingMonths.map(m=><option key={m} value={m}>{m}</option>)}
-                  <option value="__new__">+ New month…</option>
-                </select>
-              ):(
-                <div style={{display:"flex",gap:8,marginTop:5}}>
-                  <input type="text" value={incomeForm.month} autoFocus
-                    onChange={e=>setIncomeForm(f=>({...f,month:e.target.value}))} placeholder="e.g. Oct 2026"
-                    style={{flex:1,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 12px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
-                  <button onClick={()=>{setIncomeMonthMode("existing"); setIncomeForm(f=>({...f,month:CM?.m||existingMonths[existingMonths.length-1]||""}));}}
-                    style={{fontSize:11,fontWeight:600,color:TH.muted,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:10,padding:"0 12px",cursor:"pointer"}}>Cancel</button>
-                </div>
-              )}
-            </div>
-
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
-              <div>
-                <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Net Income (฿)</label>
-                <input type="number" min="0" step="1" inputMode="decimal" value={incomeForm.income}
-                  onChange={e=>setIncomeForm(f=>({...f,income:e.target.value}))} placeholder="e.g. 73897"
-                  style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 12px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
-              </div>
-              <div>
-                <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Budget (฿)</label>
-                <input type="number" min="0" step="1" inputMode="decimal" value={incomeForm.budget}
-                  onChange={e=>setIncomeForm(f=>({...f,budget:e.target.value}))} placeholder="e.g. 68868"
-                  style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 12px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
-              </div>
-            </div>
-
-            <div style={{marginBottom:10}}>
-              <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Gross Salary (฿)</label>
-              <input type="number" min="0" step="1" inputMode="decimal" value={incomeForm.grossIncome}
-                onChange={e=>setIncomeForm(f=>({...f,grossIncome:e.target.value}))} placeholder="e.g. 88733"
-                style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 12px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
-            </div>
-
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
-              <div>
-                <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Your PVD %</label>
-                <input type="number" min="0" max="100" step="0.5" inputMode="decimal" value={incomeForm.pvdEmployeePct}
-                  onChange={e=>setIncomeForm(f=>({...f,pvdEmployeePct:e.target.value}))} placeholder="e.g. 12"
-                  style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 12px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
-              </div>
-              <div>
-                <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Employer PVD %</label>
-                <input type="number" min="0" max="100" step="0.5" inputMode="decimal" value={incomeForm.pvdEmployerPct}
-                  onChange={e=>setIncomeForm(f=>({...f,pvdEmployerPct:e.target.value}))} placeholder="e.g. 12"
-                  style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 12px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
-              </div>
-            </div>
-
-            {parseFloat(incomeForm.grossIncome)>0&&(parseFloat(incomeForm.pvdEmployeePct)>=0||parseFloat(incomeForm.pvdEmployerPct)>=0)&&(()=>{
-              const g=parseFloat(incomeForm.grossIncome)||0;
-              const yourPvd=Math.round(g*(parseFloat(incomeForm.pvdEmployeePct)||0)/100);
-              const employerPvd=Math.round(g*(parseFloat(incomeForm.pvdEmployerPct)||0)/100);
-              return(
-              <div style={{background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"10px 14px",marginBottom:14}}>
-                <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}><span style={{fontSize:10,color:TH.muted}}>Your PVD/mo</span><span style={{fontSize:13,fontWeight:700,color:TH.text,fontFamily:TH.mono}}>{fmt(yourPvd)}</span></div>
-                <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}><span style={{fontSize:10,color:TH.muted}}>Employer PVD/mo</span><span style={{fontSize:13,fontWeight:700,color:TH.green,fontFamily:TH.mono}}>{fmt(employerPvd)}</span></div>
-                <div style={{display:"flex",justifyContent:"space-between",paddingTop:6,borderTop:`1px solid ${TH.border}`}}><span style={{fontSize:10,fontWeight:700,color:TH.muted}}>Total PVD/mo</span><span style={{fontSize:14,fontWeight:800,color:TH.text,fontFamily:TH.mono}}>{fmt(yourPvd+employerPvd)}</span></div>
-              </div>
-              );
-            })()}
-
-            {incomeFormStatus==="saving"&&<div style={{textAlign:"center",fontSize:12,color:TH.muted,marginBottom:10}}>Saving…</div>}
-            {incomeFormStatus==="success"&&<div style={{textAlign:"center",fontSize:12,color:"#4ADE80",marginBottom:10}}>✓ Saved!</div>}
-            {incomeFormStatus==="error"&&<div style={{textAlign:"center",fontSize:12,color:"#F87171",marginBottom:10}}>Failed to save — check connection</div>}
-
-            <button
-              onClick={submitIncomeForm}
-              disabled={!canSave||incomeFormStatus==="saving"}
-              style={{width:"100%",padding:14,borderRadius:12,fontWeight:700,fontSize:13,background:canSave?"linear-gradient(135deg,#6366F1,#38BDF8)":"rgba(255,255,255,0.06)",border:"none",color:canSave?"white":"#4B5563",cursor:canSave?"pointer":"default"}}>
-              Save
-            </button>
-          </div>
-        </div>
-        );
-      })()}
-
-      {/* ADD / EDIT DEBT MODAL */}
-      {debtFormOpen&&(()=>{
-        const balance=parseFloat(debtForm.balance)||0, rate=parseFloat(debtForm.rate)||0, monthly=parseFloat(debtForm.monthly)||0;
-        const monthlyRate = rate/100/12;
-        const liveInterest = balance*monthlyRate;
-        const livePrincipal = monthly-liveInterest;
-        const canSave = debtForm.name.trim() && balance>0 && monthly>0;
-        return(
-        <div style={{position:"fixed",inset:0,zIndex:300,display:"flex",alignItems:"flex-end"}} onClick={()=>setDebtFormOpen(false)}>
-          <div onClick={e=>e.stopPropagation()} style={{width:"100%",maxWidth:480,margin:"0 auto",maxHeight:"88vh",overflowY:"auto",background:darkMode?"#0A0E1A":"#FFFFFF",borderRadius:"24px 24px 0 0",padding:"20px 20px 32px",boxShadow:"0 -8px 40px rgba(0,0,0,0.5)",animation:"slideUp .25s cubic-bezier(.16,1,.3,1)"}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
-              <div>
-                <div style={{fontSize:15,fontWeight:800,color:TH.text}}>{debtFormMode==="edit"?"Edit Debt":"Add Debt"}</div>
-                <div style={{fontSize:11,color:TH.muted}}>{debtFormMode==="edit"?"Update balance as you pay it down":"New loan or debt to track"}</div>
-              </div>
-              <button onClick={()=>setDebtFormOpen(false)} style={{background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:10,width:30,height:30,color:TH.muted,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><X size={14}/></button>
-            </div>
-
-            <div style={{marginBottom:10}}>
-              <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Debt Name</label>
-              <input type="text" value={debtForm.name}
-                onChange={e=>setDebtForm(f=>({...f,name:e.target.value}))} placeholder="e.g. Car Loan"
-                style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 12px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
-            </div>
-
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:14}}>
-              <div>
-                <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Balance (฿)</label>
-                <input type="number" min="0" step="0.01" inputMode="decimal" value={debtForm.balance}
-                  onChange={e=>setDebtForm(f=>({...f,balance:e.target.value}))} placeholder="0.00"
-                  style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 8px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
-              </div>
-              <div>
-                <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Rate (%)</label>
-                <input type="number" min="0" step="0.01" inputMode="decimal" value={debtForm.rate}
-                  onChange={e=>setDebtForm(f=>({...f,rate:e.target.value}))} placeholder="0.00"
-                  style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 8px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
-              </div>
-              <div>
-                <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Monthly (฿)</label>
-                <input type="number" min="0" step="0.01" inputMode="decimal" value={debtForm.monthly}
-                  onChange={e=>setDebtForm(f=>({...f,monthly:e.target.value}))} placeholder="0.00"
-                  style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 8px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
-              </div>
-            </div>
-
-            {balance>0&&monthly>0&&(
-              <div style={{background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"10px 14px",marginBottom:14,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                <div><div style={{fontSize:9,color:TH.muted,fontWeight:600}}>MONTHLY INTEREST</div><div style={{fontSize:14,fontWeight:800,color:TH.red,fontFamily:TH.mono}}>{fmt(Math.round(liveInterest))}</div></div>
-                <div style={{textAlign:"right"}}><div style={{fontSize:9,color:TH.muted,fontWeight:600}}>PRINCIPAL</div><div style={{fontSize:14,fontWeight:800,color:TH.green,fontFamily:TH.mono}}>{fmt(Math.round(livePrincipal))}</div></div>
-              </div>
-            )}
-
-            {debtFormStatus==="saving"&&<div style={{textAlign:"center",fontSize:12,color:TH.muted,marginBottom:10}}>Saving…</div>}
-            {debtFormStatus==="success"&&<div style={{textAlign:"center",fontSize:12,color:"#4ADE80",marginBottom:10}}>✓ Saved!</div>}
-            {debtFormStatus==="error"&&<div style={{textAlign:"center",fontSize:12,color:"#F87171",marginBottom:10}}>Failed to save — check connection</div>}
-
-            <button
-              onClick={submitDebtForm}
-              disabled={!canSave||debtFormStatus==="saving"}
-              style={{width:"100%",padding:14,borderRadius:12,fontWeight:700,fontSize:13,background:canSave?"linear-gradient(135deg,#F87171,#FB923C)":"rgba(255,255,255,0.06)",border:"none",color:canSave?"white":"#4B5563",cursor:canSave?"pointer":"default"}}>
-              {debtFormMode==="edit"?"Save Changes":"Add Debt"}
-            </button>
-          </div>
-        </div>
-        );
-      })()}
 
       {/* OVERLAYS */}
       <ProfilePanel open={profOpen} onClose={()=>setProfOpen(false)} photo={profilePhoto} onPhotoChange={p=>{setProfilePhoto(p);try{localStorage.setItem('gf_photo',p);}catch{}}} name="Gift" darkMode={darkMode} setDarkMode={setDarkMode}/>

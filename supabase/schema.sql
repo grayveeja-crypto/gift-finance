@@ -19,9 +19,15 @@ create table if not exists holdings (
   updated_at timestamptz not null default now()
 );
 
+-- One row per debt PER MONTH (like spending), e.g. name = 'Home Loan', month = 'Sep 2026'.
+-- Logging a balance update inserts a new month's row rather than overwriting, so the app
+-- can chart a payoff trend over time. The "current" balance for a debt is just its row for
+-- the most recent month. (name, month) is unique so re-saving the same month corrects it
+-- instead of creating a duplicate.
 create table if not exists debts (
   id uuid primary key default gen_random_uuid(),
   name text not null,
+  month text,
   balance numeric not null default 0,
   rate numeric not null default 0,
   monthly numeric not null default 0,
@@ -30,6 +36,7 @@ create table if not exists debts (
   years numeric not null default 0,
   updated_at timestamptz not null default now()
 );
+create unique index if not exists debts_name_month_idx on debts (name, month);
 
 -- One row per month, e.g. month = 'Jul 2026'
 -- gross_income / pvd_pct / pvd_employer_pct are optional (nullable): when a month hasn't set
