@@ -124,16 +124,16 @@ function mapHoldingRow(r){
 
 function mapDebtRow(r){
   return {
-    name: r.name, balance: pn(r.balance), rate: pn(r.rate), monthly: pn(r.monthly),
+    id: r.id, name: r.name, balance: pn(r.balance), rate: pn(r.rate), monthly: pn(r.monthly),
     interest: pn(r.interest), principal: pn(r.principal), years: pn(r.years),
   };
 }
 
 function buildSpendingMonths(spendingRows, txnRows){
   const byMonth = {};
-  (spendingRows||[]).forEach(s=>{ byMonth[s.month] = { m:s.month, budget:pn(s.budget), income:pn(s.income), transactions:[], cats:{} }; });
+  (spendingRows||[]).forEach(s=>{ byMonth[s.month] = { m:s.month, budget:pn(s.budget), income:pn(s.income), grossIncome:pn(s.gross_income)||null, pvdEmployeePct:pn(s.pvd_pct)||null, pvdEmployerPct:pn(s.pvd_employer_pct)||null, transactions:[], cats:{} }; });
   (txnRows||[]).forEach(t=>{
-    if(!byMonth[t.month]) byMonth[t.month] = { m:t.month, budget:70400, income:75400, transactions:[], cats:{} };
+    if(!byMonth[t.month]) byMonth[t.month] = { m:t.month, budget:70400, income:75400, grossIncome:null, pvdEmployeePct:null, pvdEmployerPct:null, transactions:[], cats:{} };
     const txn = { date:t.date, day:"", cat:cleanCat(t.category), desc:t.description||"", amount:pn(t.amount), method:t.method||"" };
     byMonth[t.month].transactions.push(txn);
     byMonth[t.month].cats[txn.cat] = (byMonth[t.month].cats[txn.cat]||0) + txn.amount;
@@ -361,6 +361,30 @@ export default function App(){
   // Sum of every transaction in `cat` across all loaded months (running total)
   const cumulativeCatAmount = cat => spendingMonths.reduce((s,m)=>s+(m.transactions||[]).filter(t=>t.cat===cat).reduce((a,t)=>a+t.amount,0),0);
   const japanFundThisMonth = latestMonthCatAmount("Japan Fund");
+  // Most recent month that actually has these fields set in Supabase, so a brand-new month row
+  // (or one still on fallback data) inherits the last real figure instead of jumping straight to
+  // the hardcoded default. Employee & employer PVD% are tracked separately since they diverge
+  // (her contribution rises over time; the employer match rate stays fixed).
+  const latestGrossIncome = (()=>{ for(let i=spendingMonths.length-1;i>=0;i--){ if(spendingMonths[i].grossIncome) return spendingMonths[i].grossIncome; } return null; })();
+  const latestEmployeePvdPct = (()=>{ for(let i=spendingMonths.length-1;i>=0;i--){ if(spendingMonths[i].pvdEmployeePct!=null) return spendingMonths[i].pvdEmployeePct; } return null; })();
+  const latestEmployerPvdPct = (()=>{ for(let i=spendingMonths.length-1;i>=0;i--){ if(spendingMonths[i].pvdEmployerPct!=null) return spendingMonths[i].pvdEmployerPct; } return null; })();
+  // Live monthly retirement contribution = PVD, both employee + employer sides (auto-deducted,
+  // not a logged transaction — but real money landing in the fund) + any Retirement-category
+  // transactions, averaged over the months we have real data for — used to drive the retirement
+  // projection instead of a fixed guess.
+  const liveMonthlyContribution = (()=>{
+    const real = spendingMonths.filter(m=>m.grossIncome||m.pvdEmployeePct!=null||(m.transactions&&m.transactions.length>0));
+    if(!real.length) return null;
+    const total = real.reduce((s,m)=>{
+      const g = m.grossIncome || latestGrossIncome || 88733;
+      const pe = m.pvdEmployeePct!=null ? m.pvdEmployeePct : (latestEmployeePvdPct!=null ? latestEmployeePvdPct : 12);
+      const pr = m.pvdEmployerPct!=null ? m.pvdEmployerPct : (latestEmployerPvdPct!=null ? latestEmployerPvdPct : 12);
+      const pvd = g*(pe+pr)/100;
+      const retireTxns = (m.transactions||[]).filter(t=>t.cat==="Retirement").reduce((a,t)=>a+t.amount,0);
+      return s + pvd + retireTxns;
+    },0);
+    return Math.round(total/real.length);
+  })();
   // Live cash-flow figures derived from real Supabase transactions, falling back to the
   // static snapshot only when there's no loaded data yet (e.g. still on fallback/demo data).
   const cashFlow = {
@@ -430,6 +454,102 @@ export default function App(){
       setTimeout(()=>setFundFormStatus(null),3000);
     }
   }
+
+  // ─── INCOME / GROSS / PVD EDITOR (per month, upserts into the spending table) ─────────
+  // Employee & employer PVD% are separate fields since they diverge over time.
+  const BLANK_INCOME = {month:"",income:"",budget:"",grossIncome:"",pvdEmployeePct:"",pvdEmployerPct:""};
+  const [incomeFormOpen,setIncomeFormOpen]=useState(false);
+  const [incomeForm,setIncomeForm]=useState(BLANK_INCOME);
+  const [incomeFormStatus,setIncomeFormStatus]=useState(null); // null | "saving" | "success" | "error"
+  const [incomeMonthMode,setIncomeMonthMode]=useState("existing"); // "existing" | "new"
+
+  function openEditIncome(){
+    const src = CM || spendingMonths[spendingMonths.length-1] || {};
+    setIncomeForm({
+      month: src.m || "",
+      income: String(src.income ?? ""),
+      budget: String(src.budget ?? ""),
+      grossIncome: String(src.grossIncome || latestGrossIncome || ""),
+      pvdEmployeePct: String(src.pvdEmployeePct!=null ? src.pvdEmployeePct : (latestEmployeePvdPct!=null ? latestEmployeePvdPct : 12)),
+      pvdEmployerPct: String(src.pvdEmployerPct!=null ? src.pvdEmployerPct : (latestEmployerPvdPct!=null ? latestEmployerPvdPct : 12)),
+    });
+    setIncomeMonthMode("existing");
+    setIncomeFormStatus(null);
+    setIncomeFormOpen(true);
+  }
+  async function submitIncomeForm(){
+    const month = incomeForm.month.trim();
+    const income = parseFloat(incomeForm.income)||0;
+    const budget = parseFloat(incomeForm.budget)||0;
+    const grossIncome = parseFloat(incomeForm.grossIncome)||0;
+    const pvdEmployeePct = parseFloat(incomeForm.pvdEmployeePct)||0;
+    const pvdEmployerPct = parseFloat(incomeForm.pvdEmployerPct)||0;
+    if(!month||!income) return;
+    setIncomeFormStatus("saving");
+    try{
+      const { error } = await supabase.from("spending").upsert(
+        { month, income, budget, gross_income: grossIncome, pvd_pct: pvdEmployeePct, pvd_employer_pct: pvdEmployerPct },
+        { onConflict: "month" }
+      );
+      if(error) throw error;
+      setIncomeFormStatus("success");
+      setTimeout(()=>{setIncomeFormStatus(null); setIncomeFormOpen(false);},1000);
+      fetchAll(true);
+    }catch(e){
+      setIncomeFormStatus("error");
+      setTimeout(()=>setIncomeFormStatus(null),3000);
+    }
+  }
+
+  // ─── DEBT MANAGER (add / update debts) ──────────────────────────────────────
+  const BLANK_DEBT = {id:null,name:"",balance:"",rate:"",monthly:""};
+  const [debtFormOpen,setDebtFormOpen]=useState(false);
+  const [debtFormMode,setDebtFormMode]=useState("add"); // "add" | "edit"
+  const [debtForm,setDebtForm]=useState(BLANK_DEBT);
+  const [debtFormStatus,setDebtFormStatus]=useState(null); // null | "saving" | "success" | "error"
+
+  // ─── SECTION HUB NAV (mobile) — each big tab lands on a card hub; null = hub, else the sub-screen key
+  const [spendSubTab,setSpendSubTab]=useState(null);
+
+  function openAddDebt(){
+    setDebtFormMode("add"); setDebtForm(BLANK_DEBT); setDebtFormStatus(null); setDebtFormOpen(true);
+  }
+  function openEditDebt(debt){
+    setDebtFormMode("edit");
+    setDebtForm({id:debt.id,name:debt.name,balance:String(debt.balance||""),rate:String(debt.rate||""),monthly:String(debt.monthly||"")});
+    setDebtFormStatus(null); setDebtFormOpen(true);
+  }
+  async function submitDebtForm(){
+    const balance=parseFloat(debtForm.balance), rate=parseFloat(debtForm.rate)||0, monthly=parseFloat(debtForm.monthly);
+    if(!debtForm.name.trim()||!balance||!monthly) return;
+    setDebtFormStatus("saving");
+    const monthlyRate = rate/100/12;
+    const interest = +(balance*monthlyRate).toFixed(2);
+    const principal = +(monthly-interest).toFixed(2);
+    // Remaining amortization years from balance/rate/payment; falls back to a simple
+    // balance/payment estimate if the payment doesn't clear the interest (or rate is 0).
+    let years;
+    if(monthlyRate>0 && monthly>interest){
+      const n = -Math.log(1-(balance*monthlyRate)/monthly)/Math.log(1+monthlyRate);
+      years = +(n/12).toFixed(1);
+    } else {
+      years = +(balance/monthly/12).toFixed(1);
+    }
+    const row = { name:debtForm.name.trim(), balance, rate, monthly, interest, principal, years };
+    try{
+      const { error } = debtFormMode==="edit"
+        ? await supabase.from("debts").update(row).eq("id", debtForm.id)
+        : await supabase.from("debts").insert(row);
+      if(error) throw error;
+      setDebtFormStatus("success");
+      setTimeout(()=>{setDebtFormStatus(null); setDebtFormOpen(false);},1000);
+      fetchAll(true);
+    }catch(e){
+      setDebtFormStatus("error");
+      setTimeout(()=>setDebtFormStatus(null),3000);
+    }
+  }
+
   const [debugOpen,setDebugOpen]=useState(false); const [profOpen,setProfOpen]=useState(false);
   const [profilePhoto,setProfilePhoto]=useState(()=>{
     try{ return localStorage.getItem('gf_photo')||null; }catch{ return null; }
@@ -567,11 +687,17 @@ export default function App(){
   const EF_PCT      = Math.min(100,EF_BAL/EF_TARGET*100);
   const EF_MO_LEFT  = EF_BAL<EF_TARGET?Math.ceil((EF_TARGET-EF_BAL)/8000):0;
   // Savings Rate = deliberate savings / gross income
-  // Includes: spending sheet savings categories + PVD employee 12% (deducted from gross)
-  const PVD_EMPLOYEE = 10648; // 12% of ฿88,733 gross — update when salary changes
-  const GROSS_INCOME  = 88733;
+  // Includes: spending sheet savings categories + PVD employee % (deducted from gross)
+  // Gross income & PVD% now live per-month from Supabase (spending.gross_income / spending.pvd_pct),
+  // falling back to the last known real figures if a month hasn't set them yet.
+  const GROSS_INCOME      = CM.grossIncome || latestGrossIncome || 88733;
+  const PVD_EMPLOYEE_PCT  = CM.pvdEmployeePct!=null ? CM.pvdEmployeePct : (latestEmployeePvdPct!=null ? latestEmployeePvdPct : 12);
+  const PVD_EMPLOYER_PCT  = CM.pvdEmployerPct!=null ? CM.pvdEmployerPct : (latestEmployerPvdPct!=null ? latestEmployerPvdPct : 12);
+  const PVD_EMPLOYEE      = Math.round(GROSS_INCOME * PVD_EMPLOYEE_PCT / 100);
+  const PVD_EMPLOYER      = Math.round(GROSS_INCOME * PVD_EMPLOYER_PCT / 100);
   const SAVINGS_CATS_TXN = ["Emergency","Japan Fund","Retirement"];
   const txnSavings = (CM.transactions||[]).filter(t=>SAVINGS_CATS_TXN.includes(t.cat)).reduce((s,t)=>s+t.amount,0);
+  // Savings Rate = your own deliberate savings only (txn savings + your PVD deduction), not the employer match
   const SAVINGS_RATE = Math.round((txnSavings + PVD_EMPLOYEE) / GROSS_INCOME * 100);
   const sparkHist   = history.map(h=>({v:h.portfolio-h.debt}));
 
@@ -641,8 +767,18 @@ export default function App(){
     const dcStyle = { background:darkMode?"rgba(255,255,255,0.04)":"rgba(0,0,0,0.04)", border:`1px solid ${TH.border}`, borderRadius:16, padding:"16px 18px" };
     const nwHistory = [{m:"May",nw:738364},{m:"Jun",nw:834563},{m:"Jul",nw:900000}];
     const spendTrend = spendingMonths.map(sm=>{ const cats=sm.cats||{}; return {m:sm.m.replace(" 2026",""),Food:Math.round(cats["Food"]||0),Gas:Math.round(cats["Gas"]||0),Misc:Math.round(cats["Misc"]||0),Cat:Math.round(cats["Cat"]||0),Total:Math.round(sm.spent||0),Budget:Math.round(sm.budget||70400)}; });
-    const projData = Array.from({length:17},(_,i)=>({year:(2026+i).toString(),Conservative:Math.round((1640385+30000*12*i)*Math.pow(1.04,i)),Moderate:Math.round((1640385+30000*12*i)*Math.pow(1.06,i)),Optimistic:Math.round((1640385+30000*12*i)*Math.pow(1.08,i))}));
-    const savingsRateData = spendingMonths.map(sm=>{ const saved=(sm.transactions||[]).filter(t=>["Emergency","Japan Fund","Retirement"].includes(t.cat)).reduce((s,t)=>s+t.amount,0); return {m:sm.m.replace(" 2026",""),rate:Math.round((saved+10648)/88733*100)}; });
+    const projBase = TOTAL-DEBT || 1640385;
+    const projMonthly = liveMonthlyContribution || 30000;
+    const projData = Array.from({length:17},(_,i)=>({year:(2026+i).toString(),Conservative:Math.round((projBase+projMonthly*12*i)*Math.pow(1.04,i)),Moderate:Math.round((projBase+projMonthly*12*i)*Math.pow(1.06,i)),Optimistic:Math.round((projBase+projMonthly*12*i)*Math.pow(1.08,i))}));
+    const projFinal = projData[projData.length-1];
+    const milestoneYear = (key)=>{ const hit=projData.find(p=>p[key]>=5000000); return hit?hit.year:null; };
+    const pctToMilestone = Math.min(100, projBase/5000000*100);
+    const savingsRateData = spendingMonths.map(sm=>{
+      const saved=(sm.transactions||[]).filter(t=>["Emergency","Japan Fund","Retirement"].includes(t.cat)).reduce((s,t)=>s+t.amount,0);
+      const g = sm.grossIncome || latestGrossIncome || 88733;
+      const p = sm.pvdEmployeePct!=null ? sm.pvdEmployeePct : (latestEmployeePvdPct!=null ? latestEmployeePvdPct : 12);
+      return {m:sm.m.replace(" 2026",""),rate:Math.round((saved+g*p/100)/g*100)};
+    });
 
     return(
       <div style={{fontFamily:"'Inter','DM Sans',sans-serif",background:darkMode?"#080C18":"#F0F2F8",color:TH.text,width:"100%",height:"100vh",display:"flex",overflow:"hidden",WebkitFontSmoothing:"antialiased"}}>
@@ -1507,15 +1643,15 @@ export default function App(){
                   <div style={{fontSize:12,fontWeight:700,color:TH.text,marginBottom:12}}>Employer Match</div>
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 12px",background:"rgba(74,222,128,0.06)",border:"1px solid rgba(74,222,128,0.15)",borderRadius:12,marginBottom:8}}>
                     <div><div style={{fontSize:10,fontWeight:600,color:TH.text}}>PVD Employer Match</div><div style={{fontSize:9,color:TH.muted}}>Free money every month</div></div>
-                    <div style={{fontFamily:TH.mono,fontSize:16,fontWeight:800,color:TH.green}}>฿10,648</div>
+                    <div style={{fontFamily:TH.mono,fontSize:16,fontWeight:800,color:TH.green}}>{fmt(PVD_EMPLOYER)}</div>
                   </div>
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 12px",background:"rgba(56,189,248,0.06)",border:"1px solid rgba(56,189,248,0.15)",borderRadius:12}}>
-                    <div><div style={{fontSize:10,fontWeight:600,color:TH.text}}>Your PVD 12%</div><div style={{fontSize:9,color:TH.muted}}>Pre-tax deduction</div></div>
-                    <div style={{fontFamily:TH.mono,fontSize:16,fontWeight:800,color:TH.accent2}}>฿10,648</div>
+                    <div><div style={{fontSize:10,fontWeight:600,color:TH.text}}>Your PVD {PVD_EMPLOYEE_PCT}%</div><div style={{fontSize:9,color:TH.muted}}>Pre-tax deduction</div></div>
+                    <div style={{fontFamily:TH.mono,fontSize:16,fontWeight:800,color:TH.accent2}}>{fmt(PVD_EMPLOYEE)}</div>
                   </div>
                   <div style={{marginTop:10,padding:"8px 12px",background:TH.surf,borderRadius:10,border:`1px solid ${TH.border}`,display:"flex",justifyContent:"space-between"}}>
                     <span style={{fontSize:11,color:TH.muted}}>Total PVD/mo</span>
-                    <span style={{fontFamily:TH.mono,fontSize:12,fontWeight:700,color:TH.text}}>฿21,296</span>
+                    <span style={{fontFamily:TH.mono,fontSize:12,fontWeight:700,color:TH.text}}>{fmt(PVD_EMPLOYEE+PVD_EMPLOYER)}</span>
                   </div>
                 </div>
               </div>
@@ -1577,7 +1713,7 @@ export default function App(){
                 {/* Milestone Tracker */}
                 <div style={dcStyle}>
                   <div style={{fontSize:13,fontWeight:700,marginBottom:12}}>Milestone Tracker</div>
-                  {[{label:"฿1M Net Worth",target:1000000,current:900000,est:"~2026",c:"#FBBF24"},{label:"฿5M Portfolio",target:5000000,current:1640385,est:"~2033",c:"#6366F1"},{label:"฿20M Retirement",target:20000000,current:1640385,est:"~2042",c:"#4ADE80"}].map((ms,i)=>{
+                  {[{label:"฿1M Net Worth",target:1000000,current:TOTAL-DEBT,est:"~2026",c:"#FBBF24"},{label:"฿5M Portfolio",target:5000000,current:TOTAL,est:"~2033",c:"#6366F1"},{label:"฿20M Retirement",target:20000000,current:TOTAL,est:"~2042",c:"#4ADE80"}].map((ms,i)=>{
                     const pct=Math.min(100,ms.current/ms.target*100);
                     return(
                       <div key={i} style={{marginBottom:i<2?16:0}}>
@@ -1594,7 +1730,11 @@ export default function App(){
                 {/* Retirement Projection — full width */}
                 <div style={{...dcStyle,gridColumn:"1 / -1"}}>
                   <div style={{fontSize:13,fontWeight:700,marginBottom:2}}>Retirement Projection to 2042</div>
-                  <div style={{fontSize:10,color:TH.muted,marginBottom:8}}>฿30,000/mo contributions · ฿5M milestone → ฿20M ultimate goal</div>
+                  <div style={{fontSize:10,color:TH.muted,marginBottom:8}}>{fmt(projMonthly)}/mo contributions (live avg) · ฿5M milestone → ฿20M ultimate goal</div>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",background:"rgba(129,140,248,0.07)",border:"1px solid rgba(129,140,248,0.18)",borderRadius:10,padding:"8px 14px",marginBottom:12}}>
+                    <div><div style={{fontSize:9,color:TH.muted,fontWeight:600}}>ACTUAL TODAY</div><div style={{fontSize:15,fontWeight:800,color:TH.text,fontFamily:TH.mono}}>{fmt(projBase)}</div></div>
+                    <div style={{textAlign:"right"}}><div style={{fontSize:9,color:TH.muted,fontWeight:600}}>TO ฿5M GOAL</div><div style={{fontSize:15,fontWeight:800,color:"#818CF8",fontFamily:TH.mono}}>{pctToMilestone.toFixed(0)}%</div></div>
+                  </div>
                   <div style={{display:"flex",gap:12,marginBottom:12}}>
                     {[{l:"Conservative 4%",c:"#94A3B8"},{l:"Moderate 6%",c:"#38BDF8"},{l:"Optimistic 8%",c:"#4ADE80"}].map((s,i)=>(
                       <div key={i} style={{display:"flex",alignItems:"center",gap:5}}><div style={{width:12,height:3,borderRadius:999,background:s.c}}/><span style={{fontSize:10,color:TH.muted}}>{s.l}</span></div>
@@ -1617,16 +1757,16 @@ export default function App(){
                     </AreaChart>
                   </ResponsiveContainer>
                   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginTop:12}}>
-                    {[{l:"Conservative",v:"฿7.1M",c:"#94A3B8"},{l:"Moderate",v:"฿10.3M",c:"#38BDF8"},{l:"Optimistic",v:"฿15M+",c:"#4ADE80"}].map((s,i)=>(
+                    {[{l:"Conservative",v:projFinal.Conservative,c:"#94A3B8"},{l:"Moderate",v:projFinal.Moderate,c:"#38BDF8"},{l:"Optimistic",v:projFinal.Optimistic,c:"#4ADE80"}].map((s,i)=>(
                       <div key={i} style={{background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"10px 14px",textAlign:"center"}}>
                         <div style={{fontSize:9,color:TH.muted,marginBottom:4}}>{s.l}</div>
-                        <div style={{fontSize:16,fontWeight:800,color:s.c,fontFamily:TH.mono}}>{s.v}</div>
-                        <div style={{fontSize:9,color:TH.muted}}>by 2042</div>
+                        <div style={{fontSize:16,fontWeight:800,color:s.c,fontFamily:TH.mono}}>{fmt(s.v)}</div>
+                        <div style={{fontSize:9,color:TH.muted}}>by {projFinal.year}</div>
                       </div>
                     ))}
                   </div>
                   <div style={{marginTop:12,padding:"10px 14px",background:"rgba(251,191,36,0.07)",border:"1px solid rgba(251,191,36,0.2)",borderRadius:12,fontSize:11,color:TH.text2}}>
-                    <span style={{color:"#FBBF24",fontWeight:700}}>฿5M milestone</span> est. reached 2032–2033 at moderate returns. After that compounding accelerates toward ฿20M. 🎯
+                    <span style={{color:"#FBBF24",fontWeight:700}}>฿5M milestone</span> {milestoneYear("Moderate")?`est. reached ${milestoneYear("Moderate")} at moderate returns`:`not yet reached by ${projFinal.year} at moderate returns`}. After that compounding accelerates toward ฿20M. 🎯
                   </div>
                 </div>
               </div>
@@ -2008,6 +2148,33 @@ export default function App(){
             </div>
           </div>
 
+          {spendSubTab===null?(
+            <>
+              {/* HUB — tap into Summary or Log */}
+              <div onClick={()=>setSpendSubTab("summary")} style={{...cardStyle,cursor:"pointer",display:"flex",alignItems:"center",gap:12}}>
+                <div style={{width:44,height:44,borderRadius:12,background:"rgba(56,189,248,0.12)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>📊</div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:13,fontWeight:700,color:TH.text}}>Summary</div>
+                  <div style={{fontSize:11,color:TH.muted,marginTop:2}}>{fmt(CM.spent)} spent · {Math.round(CM.spent/(CM.budget||70400)*100)}% of budget</div>
+                </div>
+                <ChevronRight size={16} color={TH.dim}/>
+              </div>
+              <div onClick={()=>setSpendSubTab("log")} style={{...cardStyle,cursor:"pointer",display:"flex",alignItems:"center",gap:12}}>
+                <div style={{width:44,height:44,borderRadius:12,background:"rgba(129,140,248,0.12)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>📝</div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:13,fontWeight:700,color:TH.text}}>Log</div>
+                  <div style={{fontSize:11,color:TH.muted,marginTop:2}}>{TXNS.length} transaction{TXNS.length===1?"":"s"} this month</div>
+                </div>
+                <ChevronRight size={16} color={TH.dim}/>
+              </div>
+            </>
+          ):(
+          <>
+          <button onClick={()=>setSpendSubTab(null)} style={{display:"flex",alignItems:"center",gap:4,background:"transparent",border:"none",color:TH.muted,fontSize:11,fontWeight:600,cursor:"pointer",padding:"2px 0",marginBottom:-2}}>
+            <ChevronRight size={13} style={{transform:"rotate(180deg)"}}/> Spending
+          </button>
+
+          {spendSubTab==="summary"&&(<>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
             {[
               {l:"Spent",  v:CM.spent,            c:CM.spent>(CM.budget||70400)?TH.red:TH.green},
@@ -2115,7 +2282,13 @@ export default function App(){
               </>
             }
           </div>
+          </>)}
 
+          {spendSubTab==="log"&&(<>
+          <button onClick={()=>{setQuickMenu(false);setExpenseFormOpen(true);setExpenseFormStatus(null);}}
+            style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,width:"100%",padding:"12px",borderRadius:14,border:"none",background:"linear-gradient(135deg,#6366F1,#38BDF8)",color:"white",fontSize:12,fontWeight:700,cursor:"pointer"}}>
+            <Plus size={14}/> Log Expense
+          </button>
           {TXNS.length>0&&(
             <div style={cardStyle}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:13}}>
@@ -2177,6 +2350,9 @@ export default function App(){
                 })()}
               </div>
             </div>
+          )}
+          </>)}
+          </>
           )}
         </div>)}
 
@@ -2262,7 +2438,10 @@ export default function App(){
           </div>
 
           <div style={cardStyle}>
-            <div style={{fontSize:12,fontWeight:700,marginBottom:12}}>Debt Breakdown</div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+              <div style={{fontSize:12,fontWeight:700}}>Debt Breakdown</div>
+              <button onClick={openAddDebt} style={{display:"flex",alignItems:"center",gap:4,background:"rgba(248,113,113,0.1)",border:"1px solid rgba(248,113,113,0.2)",borderRadius:9,padding:"5px 10px",fontSize:10,fontWeight:700,color:TH.red,cursor:"pointer"}}><Plus size={11}/> Debt</button>
+            </div>
             {debts.map((d,i)=>{
               const open=expandDebt===i;
               return(
@@ -2280,6 +2459,7 @@ export default function App(){
                         <div style={{fontSize:12,fontWeight:800,color:TH.red,fontFamily:TH.mono}}>{fmt(d.balance)}</div>
                         <div style={{fontSize:9,color:TH.muted}}>{fmt(d.monthly)}/mo</div>
                       </div>
+                      <button onClick={(e)=>{e.stopPropagation();openEditDebt(d);}} style={{width:22,height:22,borderRadius:7,background:"transparent",border:`1px solid ${TH.border}`,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",padding:0,flexShrink:0}}><Pencil size={10} color={TH.muted}/></button>
                       <ChevronRight size={13} color={TH.dim} style={{transform:open?"rotate(90deg)":"none",transition:"transform .2s"}}/>
                     </div>
                   </div>
@@ -2318,7 +2498,10 @@ export default function App(){
               ))}
             </div>
             <div style={cardStyle}>
-              <div style={{fontSize:12,fontWeight:700,marginBottom:12}}>Cash Flow</div>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+                <div style={{fontSize:12,fontWeight:700}}>Cash Flow</div>
+                <button onClick={openEditIncome} style={{width:22,height:22,borderRadius:7,background:"transparent",border:`1px solid ${TH.border}`,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",padding:0}}><Pencil size={11} color={TH.muted}/></button>
+              </div>
               {[
                 {l:"Income",  v:cashFlow.income,    c:TH.green,  s:"+"},
                 {l:"Spent",   v:CM.spent||0,         c:TH.red,    s:"−"},
@@ -2553,6 +2736,14 @@ export default function App(){
                 <div style={{fontSize:10,color:"#6B7280"}}>Add a fund or update NAV</div>
               </div>
             </button>
+            <button onClick={(e)=>{e.stopPropagation();setQuickMenu(false);openEditIncome();}}
+              style={{display:"flex",alignItems:"center",gap:10,background:"#0A0E1A",border:"1px solid rgba(99,102,241,0.3)",borderRadius:14,padding:"11px 18px",cursor:"pointer",minWidth:200,boxShadow:"0 8px 32px rgba(0,0,0,0.4)"}}>
+              <div style={{width:32,height:32,borderRadius:10,background:"rgba(74,222,128,0.15)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>💵</div>
+              <div style={{textAlign:"left"}}>
+                <div style={{fontSize:12,fontWeight:700,color:"#FFFFFF"}}>Edit Income</div>
+                <div style={{fontSize:10,color:"#6B7280"}}>Update salary, PVD% or budget</div>
+              </div>
+            </button>
             <div style={{width:32,height:32,borderRadius:"50%",background:"rgba(255,255,255,0.08)",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer"}} onClick={()=>setQuickMenu(false)}>
               <X size={14} color="#6B7280"/>
             </div>
@@ -2756,6 +2947,183 @@ export default function App(){
         );
       })()}
 
+      {/* EDIT INCOME / GROSS / PVD MODAL */}
+      {incomeFormOpen&&(()=>{
+        const existingMonths = spendingMonths.map(m=>m.m);
+        const canSave = incomeForm.month.trim() && parseFloat(incomeForm.income)>0;
+        return(
+        <div style={{position:"fixed",inset:0,zIndex:300,display:"flex",alignItems:"flex-end"}} onClick={()=>setIncomeFormOpen(false)}>
+          <div onClick={e=>e.stopPropagation()} style={{width:"100%",maxWidth:480,margin:"0 auto",maxHeight:"88vh",overflowY:"auto",background:darkMode?"#0A0E1A":"#FFFFFF",borderRadius:"24px 24px 0 0",padding:"20px 20px 32px",boxShadow:"0 -8px 40px rgba(0,0,0,0.5)",animation:"slideUp .25s cubic-bezier(.16,1,.3,1)"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+              <div>
+                <div style={{fontSize:15,fontWeight:800,color:TH.text}}>Edit Income</div>
+                <div style={{fontSize:11,color:TH.muted}}>Net income, gross salary & PVD% — feeds Cash Flow, Savings Rate and Retirement projections</div>
+              </div>
+              <button onClick={()=>setIncomeFormOpen(false)} style={{background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:10,width:30,height:30,color:TH.muted,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><X size={14}/></button>
+            </div>
+
+            <div style={{marginBottom:10}}>
+              <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Month</label>
+              {incomeMonthMode==="existing"?(
+                <select value={incomeForm.month} onChange={e=>{
+                    const m=e.target.value;
+                    if(m==="__new__"){ setIncomeMonthMode("new"); setIncomeForm(f=>({...f,month:""})); return; }
+                    const src = spendingMonths.find(sm=>sm.m===m);
+                    setIncomeForm({
+                      month:m, income:String(src?.income??""), budget:String(src?.budget??""),
+                      grossIncome:String(src?.grossIncome||latestGrossIncome||""),
+                      pvdEmployeePct:String(src?.pvdEmployeePct!=null?src.pvdEmployeePct:(latestEmployeePvdPct!=null?latestEmployeePvdPct:12)),
+                      pvdEmployerPct:String(src?.pvdEmployerPct!=null?src.pvdEmployerPct:(latestEmployerPvdPct!=null?latestEmployerPvdPct:12)),
+                    });
+                  }}
+                  style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 12px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit"}}>
+                  {existingMonths.map(m=><option key={m} value={m}>{m}</option>)}
+                  <option value="__new__">+ New month…</option>
+                </select>
+              ):(
+                <div style={{display:"flex",gap:8,marginTop:5}}>
+                  <input type="text" value={incomeForm.month} autoFocus
+                    onChange={e=>setIncomeForm(f=>({...f,month:e.target.value}))} placeholder="e.g. Oct 2026"
+                    style={{flex:1,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 12px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
+                  <button onClick={()=>{setIncomeMonthMode("existing"); setIncomeForm(f=>({...f,month:CM?.m||existingMonths[existingMonths.length-1]||""}));}}
+                    style={{fontSize:11,fontWeight:600,color:TH.muted,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:10,padding:"0 12px",cursor:"pointer"}}>Cancel</button>
+                </div>
+              )}
+            </div>
+
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+              <div>
+                <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Net Income (฿)</label>
+                <input type="number" min="0" step="1" inputMode="decimal" value={incomeForm.income}
+                  onChange={e=>setIncomeForm(f=>({...f,income:e.target.value}))} placeholder="e.g. 73897"
+                  style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 12px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
+              </div>
+              <div>
+                <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Budget (฿)</label>
+                <input type="number" min="0" step="1" inputMode="decimal" value={incomeForm.budget}
+                  onChange={e=>setIncomeForm(f=>({...f,budget:e.target.value}))} placeholder="e.g. 68868"
+                  style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 12px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
+              </div>
+            </div>
+
+            <div style={{marginBottom:10}}>
+              <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Gross Salary (฿)</label>
+              <input type="number" min="0" step="1" inputMode="decimal" value={incomeForm.grossIncome}
+                onChange={e=>setIncomeForm(f=>({...f,grossIncome:e.target.value}))} placeholder="e.g. 88733"
+                style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 12px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
+            </div>
+
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
+              <div>
+                <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Your PVD %</label>
+                <input type="number" min="0" max="100" step="0.5" inputMode="decimal" value={incomeForm.pvdEmployeePct}
+                  onChange={e=>setIncomeForm(f=>({...f,pvdEmployeePct:e.target.value}))} placeholder="e.g. 12"
+                  style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 12px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
+              </div>
+              <div>
+                <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Employer PVD %</label>
+                <input type="number" min="0" max="100" step="0.5" inputMode="decimal" value={incomeForm.pvdEmployerPct}
+                  onChange={e=>setIncomeForm(f=>({...f,pvdEmployerPct:e.target.value}))} placeholder="e.g. 12"
+                  style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 12px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
+              </div>
+            </div>
+
+            {parseFloat(incomeForm.grossIncome)>0&&(parseFloat(incomeForm.pvdEmployeePct)>=0||parseFloat(incomeForm.pvdEmployerPct)>=0)&&(()=>{
+              const g=parseFloat(incomeForm.grossIncome)||0;
+              const yourPvd=Math.round(g*(parseFloat(incomeForm.pvdEmployeePct)||0)/100);
+              const employerPvd=Math.round(g*(parseFloat(incomeForm.pvdEmployerPct)||0)/100);
+              return(
+              <div style={{background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"10px 14px",marginBottom:14}}>
+                <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}><span style={{fontSize:10,color:TH.muted}}>Your PVD/mo</span><span style={{fontSize:13,fontWeight:700,color:TH.text,fontFamily:TH.mono}}>{fmt(yourPvd)}</span></div>
+                <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}><span style={{fontSize:10,color:TH.muted}}>Employer PVD/mo</span><span style={{fontSize:13,fontWeight:700,color:TH.green,fontFamily:TH.mono}}>{fmt(employerPvd)}</span></div>
+                <div style={{display:"flex",justifyContent:"space-between",paddingTop:6,borderTop:`1px solid ${TH.border}`}}><span style={{fontSize:10,fontWeight:700,color:TH.muted}}>Total PVD/mo</span><span style={{fontSize:14,fontWeight:800,color:TH.text,fontFamily:TH.mono}}>{fmt(yourPvd+employerPvd)}</span></div>
+              </div>
+              );
+            })()}
+
+            {incomeFormStatus==="saving"&&<div style={{textAlign:"center",fontSize:12,color:TH.muted,marginBottom:10}}>Saving…</div>}
+            {incomeFormStatus==="success"&&<div style={{textAlign:"center",fontSize:12,color:"#4ADE80",marginBottom:10}}>✓ Saved!</div>}
+            {incomeFormStatus==="error"&&<div style={{textAlign:"center",fontSize:12,color:"#F87171",marginBottom:10}}>Failed to save — check connection</div>}
+
+            <button
+              onClick={submitIncomeForm}
+              disabled={!canSave||incomeFormStatus==="saving"}
+              style={{width:"100%",padding:14,borderRadius:12,fontWeight:700,fontSize:13,background:canSave?"linear-gradient(135deg,#6366F1,#38BDF8)":"rgba(255,255,255,0.06)",border:"none",color:canSave?"white":"#4B5563",cursor:canSave?"pointer":"default"}}>
+              Save
+            </button>
+          </div>
+        </div>
+        );
+      })()}
+
+      {/* ADD / EDIT DEBT MODAL */}
+      {debtFormOpen&&(()=>{
+        const balance=parseFloat(debtForm.balance)||0, rate=parseFloat(debtForm.rate)||0, monthly=parseFloat(debtForm.monthly)||0;
+        const monthlyRate = rate/100/12;
+        const liveInterest = balance*monthlyRate;
+        const livePrincipal = monthly-liveInterest;
+        const canSave = debtForm.name.trim() && balance>0 && monthly>0;
+        return(
+        <div style={{position:"fixed",inset:0,zIndex:300,display:"flex",alignItems:"flex-end"}} onClick={()=>setDebtFormOpen(false)}>
+          <div onClick={e=>e.stopPropagation()} style={{width:"100%",maxWidth:480,margin:"0 auto",maxHeight:"88vh",overflowY:"auto",background:darkMode?"#0A0E1A":"#FFFFFF",borderRadius:"24px 24px 0 0",padding:"20px 20px 32px",boxShadow:"0 -8px 40px rgba(0,0,0,0.5)",animation:"slideUp .25s cubic-bezier(.16,1,.3,1)"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+              <div>
+                <div style={{fontSize:15,fontWeight:800,color:TH.text}}>{debtFormMode==="edit"?"Edit Debt":"Add Debt"}</div>
+                <div style={{fontSize:11,color:TH.muted}}>{debtFormMode==="edit"?"Update balance as you pay it down":"New loan or debt to track"}</div>
+              </div>
+              <button onClick={()=>setDebtFormOpen(false)} style={{background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:10,width:30,height:30,color:TH.muted,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><X size={14}/></button>
+            </div>
+
+            <div style={{marginBottom:10}}>
+              <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Debt Name</label>
+              <input type="text" value={debtForm.name}
+                onChange={e=>setDebtForm(f=>({...f,name:e.target.value}))} placeholder="e.g. Car Loan"
+                style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 12px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
+            </div>
+
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:14}}>
+              <div>
+                <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Balance (฿)</label>
+                <input type="number" min="0" step="0.01" inputMode="decimal" value={debtForm.balance}
+                  onChange={e=>setDebtForm(f=>({...f,balance:e.target.value}))} placeholder="0.00"
+                  style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 8px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
+              </div>
+              <div>
+                <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Rate (%)</label>
+                <input type="number" min="0" step="0.01" inputMode="decimal" value={debtForm.rate}
+                  onChange={e=>setDebtForm(f=>({...f,rate:e.target.value}))} placeholder="0.00"
+                  style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 8px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
+              </div>
+              <div>
+                <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Monthly (฿)</label>
+                <input type="number" min="0" step="0.01" inputMode="decimal" value={debtForm.monthly}
+                  onChange={e=>setDebtForm(f=>({...f,monthly:e.target.value}))} placeholder="0.00"
+                  style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 8px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
+              </div>
+            </div>
+
+            {balance>0&&monthly>0&&(
+              <div style={{background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"10px 14px",marginBottom:14,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <div><div style={{fontSize:9,color:TH.muted,fontWeight:600}}>MONTHLY INTEREST</div><div style={{fontSize:14,fontWeight:800,color:TH.red,fontFamily:TH.mono}}>{fmt(Math.round(liveInterest))}</div></div>
+                <div style={{textAlign:"right"}}><div style={{fontSize:9,color:TH.muted,fontWeight:600}}>PRINCIPAL</div><div style={{fontSize:14,fontWeight:800,color:TH.green,fontFamily:TH.mono}}>{fmt(Math.round(livePrincipal))}</div></div>
+              </div>
+            )}
+
+            {debtFormStatus==="saving"&&<div style={{textAlign:"center",fontSize:12,color:TH.muted,marginBottom:10}}>Saving…</div>}
+            {debtFormStatus==="success"&&<div style={{textAlign:"center",fontSize:12,color:"#4ADE80",marginBottom:10}}>✓ Saved!</div>}
+            {debtFormStatus==="error"&&<div style={{textAlign:"center",fontSize:12,color:"#F87171",marginBottom:10}}>Failed to save — check connection</div>}
+
+            <button
+              onClick={submitDebtForm}
+              disabled={!canSave||debtFormStatus==="saving"}
+              style={{width:"100%",padding:14,borderRadius:12,fontWeight:700,fontSize:13,background:canSave?"linear-gradient(135deg,#F87171,#FB923C)":"rgba(255,255,255,0.06)",border:"none",color:canSave?"white":"#4B5563",cursor:canSave?"pointer":"default"}}>
+              {debtFormMode==="edit"?"Save Changes":"Add Debt"}
+            </button>
+          </div>
+        </div>
+        );
+      })()}
+
       {/* ══ TRENDS TAB ══ */}
       {tab==="trends"&&(()=>{
         // ── Spending trend data ──
@@ -2783,8 +3151,8 @@ export default function App(){
         const currentAge = 42;
         const retireAge  = 60;
         const years      = retireAge - currentAge;
-        const currentPF  = 1640385;
-        const monthly    = 30000;
+        const currentPF  = (TOTAL-DEBT) || 1640385;
+        const monthly    = liveMonthlyContribution || 30000; // live avg of PVD + Retirement-cat transactions
         const projData   = Array.from({length:years+1},(_,i)=>{
           const label = (2026+i).toString();
           const base  = currentPF;
@@ -2795,13 +3163,18 @@ export default function App(){
           };
           return { year:label, Conservative:calc(0.04), Moderate:calc(0.06), Optimistic:calc(0.08) };
         });
+        const projFinal = projData[projData.length-1];
+        // First projected year each scenario crosses the ฿5M milestone (null if never, within the window)
+        const milestoneYear = (key)=>{ const hit=projData.find(p=>p[key]>=5000000); return hit?hit.year:null; };
+        const pctToMilestone = Math.min(100, currentPF/5000000*100);
 
-        // ── Savings rate ──
+        // ── Savings rate ── (live gross income + PVD% per month, from Supabase)
         const savingsRateData = spendingMonths.map(sm=>{
           const savCats = ["Emergency","Japan Fund","Retirement"];
           const saved = (sm.transactions||[]).filter(t=>savCats.includes(t.cat)).reduce((s,t)=>s+t.amount,0);
-          const pvd   = 10648;
-          const gross = 88733;
+          const gross = sm.grossIncome || latestGrossIncome || 88733;
+          const pvdPctM = sm.pvdEmployeePct!=null ? sm.pvdEmployeePct : (latestEmployeePvdPct!=null ? latestEmployeePvdPct : 12);
+          const pvd = gross*pvdPctM/100;
           return { m: sm.m.replace(" 2026",""), rate: Math.round((saved+pvd)/gross*100) };
         });
 
@@ -2839,7 +3212,11 @@ export default function App(){
             {/* ── Retirement Projection ── */}
             <div style={cardStyle}>
               <div style={{fontSize:12,fontWeight:700,marginBottom:2}}>Retirement Projection</div>
-              <div style={{fontSize:10,color:TH.muted,marginBottom:4}}>฿30,000/mo contributions · Target ฿5M → ฿20M</div>
+              <div style={{fontSize:10,color:TH.muted,marginBottom:4}}>{fmt(monthly)}/mo contributions (live avg) · Target ฿5M → ฿20M</div>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",background:"rgba(129,140,248,0.07)",border:"1px solid rgba(129,140,248,0.18)",borderRadius:10,padding:"8px 12px",marginBottom:10}}>
+                <div><div style={{fontSize:8,color:TH.muted,fontWeight:600}}>ACTUAL TODAY</div><div style={{fontSize:14,fontWeight:800,color:TH.text,fontFamily:TH.mono}}>{fmt(currentPF)}</div></div>
+                <div style={{textAlign:"right"}}><div style={{fontSize:8,color:TH.muted,fontWeight:600}}>TO ฿5M GOAL</div><div style={{fontSize:14,fontWeight:800,color:"#818CF8",fontFamily:TH.mono}}>{pctToMilestone.toFixed(0)}%</div></div>
+              </div>
               <div style={{display:"flex",gap:6,marginBottom:10,flexWrap:"wrap"}}>
                 {[{l:"Conservative 4%",c:"#94A3B8"},{l:"Moderate 6%",c:"#38BDF8"},{l:"Optimistic 8%",c:"#4ADE80"}].map((s,i)=>(
                   <div key={i} style={{display:"flex",alignItems:"center",gap:4}}>
@@ -2868,16 +3245,16 @@ export default function App(){
                 </AreaChart>
               </ResponsiveContainer>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginTop:10}}>
-                {[{l:"Conservative",v:"฿7.1M",c:"#94A3B8"},{l:"Moderate",v:"฿10.3M",c:"#38BDF8"},{l:"Optimistic",v:"฿15M",c:"#4ADE80"}].map((s,i)=>(
+                {[{l:"Conservative",v:projFinal.Conservative,c:"#94A3B8"},{l:"Moderate",v:projFinal.Moderate,c:"#38BDF8"},{l:"Optimistic",v:projFinal.Optimistic,c:"#4ADE80"}].map((s,i)=>(
                   <div key={i} style={{background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:10,padding:"8px 10px",textAlign:"center"}}>
                     <div style={{fontSize:8,color:TH.muted,marginBottom:3}}>{s.l}</div>
-                    <div style={{fontSize:13,fontWeight:800,color:s.c,fontFamily:TH.mono}}>{s.v}</div>
-                    <div style={{fontSize:8,color:TH.muted}}>by 2042</div>
+                    <div style={{fontSize:13,fontWeight:800,color:s.c,fontFamily:TH.mono}}>{fmt(s.v)}</div>
+                    <div style={{fontSize:8,color:TH.muted}}>by {projFinal.year}</div>
                   </div>
                 ))}
               </div>
               <div style={{marginTop:10,padding:"8px 12px",background:"rgba(251,191,36,0.07)",border:"1px solid rgba(251,191,36,0.2)",borderRadius:10,fontSize:10,color:TH.text2}}>
-                <span style={{color:"#FBBF24",fontWeight:700}}>฿5M milestone</span> — est. reached 2032-2033 at moderate returns. After that, compounding does the heavy lifting toward ฿20M. 🎯
+                <span style={{color:"#FBBF24",fontWeight:700}}>฿5M milestone</span> — {milestoneYear("Moderate")?`est. reached ${milestoneYear("Moderate")} at moderate returns`:`not yet reached by ${projFinal.year} at moderate returns`}. After that, compounding does the heavy lifting toward ฿20M. 🎯
               </div>
             </div>
 
@@ -2946,9 +3323,9 @@ export default function App(){
             <div style={cardStyle}>
               <div style={{fontSize:12,fontWeight:700,marginBottom:12}}>Milestone Tracker</div>
               {[
-                {label:"฿1M Net Worth",   target:1000000,  current:900000,   done:false, est:"~2026"},
-                {label:"฿5M Portfolio",   target:5000000,  current:1640385,  done:false, est:"~2033"},
-                {label:"฿20M Retirement", target:20000000, current:1640385,  done:false, est:"~2042"},
+                {label:"฿1M Net Worth",   target:1000000,  current:TOTAL-DEBT, done:false, est:"~2026"},
+                {label:"฿5M Portfolio",   target:5000000,  current:TOTAL,      done:false, est:"~2033"},
+                {label:"฿20M Retirement", target:20000000, current:TOTAL,      done:false, est:"~2042"},
               ].map((ms,i)=>{
                 const pct = Math.min(100, ms.current/ms.target*100);
                 const colors = ["#FBBF24","#6366F1","#4ADE80"];

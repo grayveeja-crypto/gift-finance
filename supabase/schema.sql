@@ -32,9 +32,11 @@ create table if not exists debts (
 );
 
 -- One row per month, e.g. month = 'Jul 2026'
--- gross_income / pvd_pct are optional (nullable): when a month hasn't set them yet, the app
--- falls back to the most recent month that has, so the Savings Rate / PVD / retirement
--- projection figures never go blank, they just stay at the last real value until updated.
+-- gross_income / pvd_pct / pvd_employer_pct are optional (nullable): when a month hasn't set
+-- them yet, the app falls back to the most recent month that has, so the Savings Rate / PVD /
+-- retirement projection figures never go blank, they just stay at the last real value until
+-- updated. pvd_pct is HER OWN PVD contribution rate; pvd_employer_pct is the employer match
+-- rate — tracked separately since her rate rises over time while the employer's stays fixed.
 create table if not exists spending (
   id uuid primary key default gen_random_uuid(),
   month text not null unique,
@@ -42,6 +44,7 @@ create table if not exists spending (
   income numeric not null default 0,
   gross_income numeric,
   pvd_pct numeric,
+  pvd_employer_pct numeric,
   updated_at timestamptz not null default now()
 );
 
