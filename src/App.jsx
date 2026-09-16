@@ -304,10 +304,12 @@ function FundPanel({fund,history,onClose,onEdit,darkMode}){
           )}
         </div>
 
+        {onEdit&&(
         <div style={{display:"flex",gap:8}}>
-          <button style={{flex:1,padding:11,borderRadius:12,fontWeight:700,fontSize:12,background:"linear-gradient(135deg,#22C55E,#16A34A)",border:"none",color:"white",cursor:"pointer"}}>Buy More</button>
-          <button style={{flex:1,padding:11,borderRadius:12,fontWeight:700,fontSize:12,background:"transparent",border:`1px solid ${TH.border}`,color:TH.muted,cursor:"pointer"}}>Sell</button>
+          <button onClick={()=>onEdit(fund)} style={{flex:1,padding:11,borderRadius:12,fontWeight:700,fontSize:12,background:"linear-gradient(135deg,#22C55E,#16A34A)",border:"none",color:"white",cursor:"pointer"}}>Buy More</button>
+          <button onClick={()=>onEdit(fund)} style={{flex:1,padding:11,borderRadius:12,fontWeight:700,fontSize:12,background:"transparent",border:`1px solid ${TH.border}`,color:TH.muted,cursor:"pointer"}}>Sell</button>
         </div>
+        )}
       </div>
     </div>
   );
