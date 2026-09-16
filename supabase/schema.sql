@@ -3,9 +3,15 @@
 
 create extension if not exists "pgcrypto";
 
+-- One row per fund PER MONTH (like spending/debts), e.g. code = 'SCBRM2', month = 'Sep 2026'.
+-- Logging an update inserts a new month's row rather than overwriting, so the app can chart
+-- value/cost/unrealized-gain over time. The "current" figures for a fund are just its row for
+-- the most recent month. (code, month) is unique so re-saving the same month corrects it
+-- instead of creating a duplicate.
 create table if not exists holdings (
   id uuid primary key default gen_random_uuid(),
   code text not null,
+  month text,
   name text,
   type text not null default 'Retirement',
   cls text not null,
@@ -18,6 +24,7 @@ create table if not exists holdings (
   total_pct numeric not null default 0,
   updated_at timestamptz not null default now()
 );
+create unique index if not exists holdings_code_month_idx on holdings (code, month);
 
 -- One row per debt PER MONTH (like spending), e.g. name = 'Home Loan', month = 'Sep 2026'.
 -- Logging a balance update inserts a new month's row rather than overwriting, so the app

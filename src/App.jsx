@@ -235,12 +235,15 @@ function ProfilePanel({open,onClose,photo,onPhotoChange,name,darkMode,setDarkMod
   );
 }
 
-function FundPanel({fund,onClose,onEdit,darkMode}){
+function FundPanel({fund,history,onClose,onEdit,darkMode}){
   if(!fund) return null;
   const TH = darkMode ? T : LIGHT_T;
   const gl=fund.value-fund.cost;
   const mini=Array.from({length:10},(_,i)=>({v:fund.cost*(0.93+i*.009+(Math.sin(i*1.9)*.008))}));
   mini[9]={v:fund.value};
+  // Real value-vs-cost trend from her monthly logs (not the decorative sparkline above),
+  // so she can actually see unrealized gain grow over time once she's logged 2+ months.
+  const hist = (history||[]).filter(h=>h.month).sort((a,b)=>monthRank(a.month)-monthRank(b.month));
   return(
     <div style={{position:"fixed",inset:0,zIndex:250,display:"flex",justifyContent:"flex-end"}}>
       <div onClick={onClose} style={{position:"absolute",inset:0,background:"rgba(0,0,0,0.55)",backdropFilter:"blur(6px)"}}/>
@@ -278,6 +281,29 @@ function FundPanel({fund,onClose,onEdit,darkMode}){
             <div style={{textAlign:"right"}}><div style={{fontSize:9,color:TH.muted,marginBottom:2,fontWeight:600}}>CHANGE</div><div style={{fontSize:12,fontWeight:700,color:clr(fund.dailyPct,TH),fontFamily:TH.mono}}>{sgn(fund.dailyPct)}{fd(fund.dailyPct)}%</div></div>
           </div>
         )}
+
+        <div style={{marginBottom:14}}>
+          <div style={{fontSize:9,fontWeight:700,color:TH.muted,marginBottom:6,textTransform:"uppercase",letterSpacing:".05em"}}>Value vs Cost — Unrealized Gain</div>
+          {hist.length>=2?(
+            <ResponsiveContainer width="100%" height={90}>
+              <AreaChart data={hist} margin={{top:2,right:2,left:0,bottom:0}}>
+                <defs>
+                  <linearGradient id="fundValueGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#4ADE80" stopOpacity={0.25}/>
+                    <stop offset="95%" stopColor="#4ADE80" stopOpacity={0}/>
+                  </linearGradient>
+                </defs>
+                <XAxis dataKey="month" tick={{fontSize:8,fill:TH.muted}} axisLine={false} tickLine={false}/>
+                <Tooltip formatter={(v,k)=>[fmt(v),k==="value"?"Value":"Cost"]} contentStyle={{background:darkMode?"#0D1117":"#fff",border:`1px solid ${TH.border}`,borderRadius:10,fontSize:10}}/>
+                <Area type="monotone" dataKey="cost" stroke={TH.muted} strokeWidth={1.5} strokeDasharray="3 3" fill="none" dot={{fill:TH.muted,r:2}}/>
+                <Area type="monotone" dataKey="value" stroke="#4ADE80" strokeWidth={2} fill="url(#fundValueGrad)" dot={{fill:"#4ADE80",r:3}}/>
+              </AreaChart>
+            </ResponsiveContainer>
+          ):(
+            <div style={{fontSize:9,color:TH.muted,fontStyle:"italic"}}>Log next month's NAV/units to start tracking value vs cost over time.</div>
+          )}
+        </div>
+
         <div style={{display:"flex",gap:8}}>
           <button style={{flex:1,padding:11,borderRadius:12,fontWeight:700,fontSize:12,background:"linear-gradient(135deg,#22C55E,#16A34A)",border:"none",color:"white",cursor:"pointer"}}>Buy More</button>
           <button style={{flex:1,padding:11,borderRadius:12,fontWeight:700,fontSize:12,background:"transparent",border:`1px solid ${TH.border}`,color:TH.muted,cursor:"pointer"}}>Sell</button>
@@ -2777,12 +2803,21 @@ export default function App(){
           const milestoneYear = (key)=>{ const hit=projData.find(p=>p[key]>=5000000); return hit?hit.year:null; };
           const pctToMilestone = Math.min(100, currentPF/5000000*100);
 
-          // ── Net worth history ──
-          const nwHistory = [
-            {m:"May",portfolio:1534749,debt:796385,nw:738364},
-            {m:"Jun",portfolio:1630948,debt:796385,nw:834563},
-            {m:"Jul",portfolio:1640385,debt:796385,nw:900000},
-          ];
+          // ── Net worth history — real once she's logged 2+ months of Fund/Debt history:
+          // every fund's value minus every debt's balance, forward-filled at each month that
+          // either was updated in. Falls back to a few placeholder points until there's enough
+          // real history to chart, so the chart never just goes blank.
+          const nwMonths = Array.from(new Set([...holdingsHistory.map(h=>h.month), ...debtHistory.map(h=>h.month)].filter(Boolean)))
+            .sort((a,b)=>monthRank(a)-monthRank(b));
+          const nwPortfolioVals = totalsAtMonths(holdingsHistory, "code", "value", nwMonths);
+          const nwDebtVals = totalsAtMonths(debtHistory, "name", "balance", nwMonths);
+          const nwHistory = nwMonths.length>=2
+            ? nwMonths.map((m,i)=>({ m:m.replace(" 2026",""), portfolio:nwPortfolioVals[i], debt:nwDebtVals[i], nw:nwPortfolioVals[i]-nwDebtVals[i] }))
+            : [
+                {m:"May",portfolio:1534749,debt:796385,nw:738364},
+                {m:"Jun",portfolio:1630948,debt:796385,nw:834563},
+                {m:"Jul",portfolio:1640385,debt:796385,nw:900000},
+              ];
 
           // ── Spending trend data ──
           const spendTrend = spendingMonths.map(sm=>{
@@ -3638,7 +3673,7 @@ export default function App(){
 
       {/* OVERLAYS */}
       <ProfilePanel open={profOpen} onClose={()=>setProfOpen(false)} photo={profilePhoto} onPhotoChange={p=>{setProfilePhoto(p);try{localStorage.setItem('gf_photo',p);}catch{}}} name="Gift" darkMode={darkMode} setDarkMode={setDarkMode}/>
-      <FundPanel fund={selFund} onClose={()=>setSelFund(null)} onEdit={openEditFund} darkMode={darkMode}/>
+      <FundPanel fund={selFund} history={selFund?holdingsHistory.filter(h=>h.code===selFund.code):[]} onClose={()=>setSelFund(null)} onEdit={openEditFund} darkMode={darkMode}/>
       <AIPanel open={aiOpen} onClose={()=>setAiOpen(false)} holdings={holdings} debts={debts} spendingMonths={spendingMonths}/>
       <DebugPanel open={debugOpen} onClose={()=>setDebugOpen(false)} portRaw={portRaw} spendRaw={spendRaw} portErr={portErr} spendErr={spendErr}/>
     </div>
