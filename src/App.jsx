@@ -330,7 +330,7 @@ function DebugPanel({open,onClose,portRaw,spendRaw,portErr,spendErr,darkMode}){
 }
 
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
-const TABS=[{id:"overview",label:"Overview",Icon:Home},{id:"investments",label:"Invest",Icon:BarChart2},{id:"spending",label:"Spending",Icon:CreditCard},{id:"planning",label:"Plan",Icon:Target},{id:"trends",label:"Trends",Icon:TrendingUp}];
+const TABS=[{id:"overview",label:"Overview",Icon:Home},{id:"investments",label:"Invest",Icon:BarChart2},{id:"spending",label:"Spending",Icon:CreditCard},{id:"planning",label:"Plan",Icon:Target}];
 const SAVINGS_CATS=["Japan Fund","Retirement","Emergency","Investment"];
 const FIXED_CATS  =["Housing","Internet","Phone","Mom","Subscriptions","Installment"];
 
@@ -510,6 +510,9 @@ export default function App(){
 
   // ─── SECTION HUB NAV (mobile) — each big tab lands on a card hub; null = hub, else the sub-screen key
   const [spendSubTab,setSpendSubTab]=useState(null);
+  const [overviewSubTab,setOverviewSubTab]=useState(null);
+  const [investSubTab,setInvestSubTab]=useState(null);
+  const [planSubTab,setPlanSubTab]=useState(null);
 
   function openAddDebt(){
     setDebtFormMode("add"); setDebtForm(BLANK_DEBT); setDebtFormStatus(null); setDebtFormOpen(true);
@@ -1838,6 +1841,48 @@ export default function App(){
         ══════════════════════════════════════════════════════ */}
         {tab==="overview"&&(<div style={{display:"flex",flexDirection:"column",gap:9}}>
 
+          {overviewSubTab===null?(
+            <>
+              <div onClick={()=>setOverviewSubTab("snapshot")} style={{...cardStyle,cursor:"pointer",display:"flex",alignItems:"center",gap:12}}>
+                <div style={{width:44,height:44,borderRadius:12,background:"rgba(129,140,248,0.12)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>💎</div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:13,fontWeight:700,color:TH.text}}>Snapshot</div>
+                  <div style={{fontSize:11,color:TH.muted,marginTop:2}}>Net worth {fmt(NW)}</div>
+                </div>
+                <ChevronRight size={16} color={TH.dim}/>
+              </div>
+              <div onClick={()=>setOverviewSubTab("cashflow")} style={{...cardStyle,cursor:"pointer",display:"flex",alignItems:"center",gap:12}}>
+                <div style={{width:44,height:44,borderRadius:12,background:"rgba(74,222,128,0.12)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>💵</div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:13,fontWeight:700,color:TH.text}}>Cash Flow</div>
+                  <div style={{fontSize:11,color:TH.muted,marginTop:2}}>In {fmt(cashFlow.income)} · Spent {fmt(CM.spent||0)} · Net {fmt(cashFlow.income-(CM.spent||0))}</div>
+                </div>
+                <ChevronRight size={16} color={TH.dim}/>
+              </div>
+              <div onClick={()=>setOverviewSubTab("emergency")} style={{...cardStyle,cursor:"pointer",display:"flex",alignItems:"center",gap:12}}>
+                <div style={{width:44,height:44,borderRadius:12,background:"rgba(251,191,36,0.12)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>🛡️</div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:13,fontWeight:700,color:TH.text}}>Emergency Fund</div>
+                  <div style={{fontSize:11,color:TH.muted,marginTop:2}}>{EF_PCT.toFixed(0)}% complete · {fmt(EF_BAL)} of {fmt(EF_TARGET)}</div>
+                </div>
+                <ChevronRight size={16} color={TH.dim}/>
+              </div>
+              <div onClick={()=>setOverviewSubTab("movers")} style={{...cardStyle,cursor:"pointer",display:"flex",alignItems:"center",gap:12}}>
+                <div style={{width:44,height:44,borderRadius:12,background:"rgba(56,189,248,0.12)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>📈</div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:13,fontWeight:700,color:TH.text}}>Today's Movers</div>
+                  <div style={{fontSize:11,color:TH.muted,marginTop:2}}>Unrealized gain {fmt(GL)}</div>
+                </div>
+                <ChevronRight size={16} color={TH.dim}/>
+              </div>
+            </>
+          ):(
+          <>
+          <button onClick={()=>setOverviewSubTab(null)} style={{display:"flex",alignItems:"center",gap:4,background:"transparent",border:"none",color:TH.muted,fontSize:11,fontWeight:600,cursor:"pointer",padding:"2px 0",marginBottom:-2}}>
+            <ChevronRight size={13} style={{transform:"rotate(180deg)"}}/> Overview
+          </button>
+
+          {overviewSubTab==="snapshot"&&(<>
           {/* ① NET WORTH HERO ─────────────────────────────────── */}
           <div style={{borderRadius:22,overflow:"hidden",background:"linear-gradient(145deg,#0D1035 0%,#080C20 60%,#060912 100%)",border:"1px solid rgba(99,102,241,0.25)",position:"relative"}}>
             {/* Glow orb */}
@@ -1923,7 +1968,43 @@ export default function App(){
               </div>
             </div>
           </div>
+          </>)}
 
+          {overviewSubTab==="cashflow"&&(<>
+          <div style={cardStyle}>
+            <div style={{fontSize:12,fontWeight:700,marginBottom:2}}>This Month</div>
+            <div style={{fontSize:10,color:TH.muted,marginBottom:14}}>Money in vs. spent vs. saved</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:14}}>
+              {[
+                {l:"Income", v:cashFlow.income,               c:TH.green},
+                {l:"Spent",  v:CM.spent||0,                    c:TH.red},
+                {l:"Saved",  v:cashFlow.income-(CM.spent||0),  c:TH.accent},
+              ].map((s,i)=>(
+                <div key={i} style={{background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"10px 8px",textAlign:"center"}}>
+                  <div style={{fontSize:9,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em",marginBottom:4}}>{s.l}</div>
+                  <div style={{fontSize:13,fontWeight:800,color:s.c,fontFamily:TH.mono}}>{fmt(Math.abs(s.v))}</div>
+                </div>
+              ))}
+            </div>
+            <div style={{height:8,background:darkMode?"rgba(255,255,255,0.07)":"rgba(0,0,0,0.07)",borderRadius:999,overflow:"hidden",marginBottom:14}}>
+              <div style={{height:"100%",width:`${Math.min((CM.spent||0)/(cashFlow.income||1)*100,100)}%`,background:"linear-gradient(90deg,#F87171,#FCA5A5)",borderRadius:999}}/>
+            </div>
+            <div style={{borderTop:`1px solid ${TH.border}`,paddingTop:10}}>
+              {[
+                {l:"Travel Fund",v:cashFlow.travelFund, c:TH.accent2},
+                {l:"Invested",   v:cashFlow.investments,c:TH.accent2},
+                {l:"Savings Rate",v:null,pct:`${SAVINGS_RATE}%`,c:"#38BDF8"},
+              ].map((s,i)=>(
+                <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:i<2?8:0}}>
+                  <span style={{fontSize:10,color:TH.muted}}>{s.l}</span>
+                  <span style={{fontSize:11,fontWeight:700,color:s.c,fontFamily:TH.mono}}>{s.pct||fmt(s.v||0)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+          </>)}
+
+          {overviewSubTab==="emergency"&&(<>
           {/* ② EMERGENCY FUND ─────────────────────────────────── */}
           <div style={{borderRadius:20,background:"rgba(251,191,36,0.04)",border:"1px solid rgba(251,191,36,0.22)",padding:"15px 16px"}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
@@ -1975,7 +2056,9 @@ export default function App(){
               </div>
             )}
           </div>
+          </>)}
 
+          {overviewSubTab==="movers"&&(<>
           {/* ④ TODAY'S MOVERS ─────────────────────────────────── */}
           <div style={cardStyle}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
@@ -2005,11 +2088,48 @@ export default function App(){
               <span style={{fontFamily:TH.mono,fontSize:12,fontWeight:800,color:TH.green}}>{sgn(GL)}{fmt(Math.abs(GL))}</span>
             </div>
           </div>
-
+          </>)}
+          </>
+          )}
         </div>)}
 
         {/* ══ INVESTMENTS ══ */}
         {tab==="investments"&&(<div style={{display:"flex",flexDirection:"column",gap:11}}>
+
+          {investSubTab===null?(
+            <>
+              <div onClick={()=>setInvestSubTab("allocation")} style={{...cardStyle,cursor:"pointer",display:"flex",alignItems:"center",gap:12}}>
+                <div style={{width:44,height:44,borderRadius:12,background:"rgba(56,189,248,0.12)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>🥧</div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:13,fontWeight:700,color:TH.text}}>Allocation</div>
+                  <div style={{fontSize:11,color:TH.muted,marginTop:2}}>{fmt(TOTAL)} total · {(PERSONAL/TOTAL*100).toFixed(0)}% personal, {(RETIRE/TOTAL*100).toFixed(0)}% PVD</div>
+                </div>
+                <ChevronRight size={16} color={TH.dim}/>
+              </div>
+              <div onClick={()=>setInvestSubTab("holdings")} style={{...cardStyle,cursor:"pointer",display:"flex",alignItems:"center",gap:12}}>
+                <div style={{width:44,height:44,borderRadius:12,background:"rgba(129,140,248,0.12)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>📋</div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:13,fontWeight:700,color:TH.text}}>Holdings</div>
+                  <div style={{fontSize:11,color:TH.muted,marginTop:2}}>{holdings.length} fund{holdings.length===1?"":"s"} · tap to search or add</div>
+                </div>
+                <ChevronRight size={16} color={TH.dim}/>
+              </div>
+              <div onClick={()=>setInvestSubTab("rebalance")} style={{...cardStyle,cursor:"pointer",display:"flex",alignItems:"center",gap:12}}>
+                <div style={{width:44,height:44,borderRadius:12,background:"rgba(251,191,36,0.12)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>⚖️</div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:13,fontWeight:700,color:TH.text}}>Rebalance</div>
+                  <div style={{fontSize:11,color:TH.muted,marginTop:2}}>{REBAL.every(r=>r.diff===0)?"Portfolio balanced":`${REBAL.filter(r=>r.diff!==0).length} class(es) off target`}</div>
+                </div>
+                <ChevronRight size={16} color={TH.dim}/>
+              </div>
+            </>
+          ):(
+          <>
+          <button onClick={()=>setInvestSubTab(null)} style={{display:"flex",alignItems:"center",gap:4,background:"transparent",border:"none",color:TH.muted,fontSize:11,fontWeight:600,cursor:"pointer",padding:"2px 0",marginBottom:-2}}>
+            <ChevronRight size={13} style={{transform:"rotate(180deg)"}}/> Invest
+          </button>
+
+          {investSubTab==="allocation"&&(<>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}}>
             {[{label:"Personal",val:PERSONAL,pct:+(PERSONAL/TOTAL*100).toFixed(1),c:TH.accent},{label:"Retirement (PVD)",val:RETIRE,pct:+(RETIRE/TOTAL*100).toFixed(1),c:TH.accent2}].map((s,i)=>(
               <div key={i} style={cardStyle}>
@@ -2074,7 +2194,9 @@ export default function App(){
               </div>
             );
           })()}
+          </>)}
 
+          {investSubTab==="holdings"&&(<>
           <div style={cardStyle}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:8}}>
               <div style={{fontSize:12,fontWeight:700}}>Holdings <span style={{fontSize:10,color:TH.muted,fontWeight:400}}>· tap for details</span></div>
@@ -2111,7 +2233,9 @@ export default function App(){
             ))}
             {!FILTERED.length&&<div style={{textAlign:"center",padding:20,color:TH.muted,fontSize:11}}>No funds match</div>}
           </div>
+          </>)}
 
+          {investSubTab==="rebalance"&&(<>
           <div style={cardStyle}>
             <div style={{fontSize:12,fontWeight:700,marginBottom:4}}>Target vs Actual</div>
             <div style={{fontSize:10,color:TH.muted,marginBottom:12}}>Based on TargetAllocation sheet</div>
@@ -2135,6 +2259,9 @@ export default function App(){
               );
             })}
           </div>
+          </>)}
+          </>
+          )}
         </div>)}
 
         {/* ══ SPENDING ══ */}
@@ -2444,7 +2571,209 @@ export default function App(){
         </div>)}
 
         {/* ══ PLANNING ══ */}
-        {tab==="planning"&&(<div style={{display:"flex",flexDirection:"column",gap:11}}>
+        {tab==="planning"&&(()=>{
+          // ── Retirement projection (moved from the old Trends tab) ──
+          const currentAge = 42;
+          const retireAge  = 60;
+          const years      = retireAge - currentAge;
+          const currentPF  = (TOTAL-DEBT) || 1640385;
+          const monthly    = liveMonthlyContribution || 30000; // live avg of PVD + Retirement-cat transactions
+          const projData   = Array.from({length:years+1},(_,i)=>{
+            const label = (2026+i).toString();
+            const base  = currentPF;
+            const calc  = (r)=>{
+              let v=base;
+              for(let y=0;y<i;y++) v=(v+monthly*12)*( 1+r);
+              return Math.round(v);
+            };
+            return { year:label, Conservative:calc(0.04), Moderate:calc(0.06), Optimistic:calc(0.08) };
+          });
+          const projFinal = projData[projData.length-1];
+          const milestoneYear = (key)=>{ const hit=projData.find(p=>p[key]>=5000000); return hit?hit.year:null; };
+          const pctToMilestone = Math.min(100, currentPF/5000000*100);
+
+          // ── Net worth history ──
+          const nwHistory = [
+            {m:"May",portfolio:1534749,debt:796385,nw:738364},
+            {m:"Jun",portfolio:1630948,debt:796385,nw:834563},
+            {m:"Jul",portfolio:1640385,debt:796385,nw:900000},
+          ];
+
+          // ── Spending trend data ──
+          const spendTrend = spendingMonths.map(sm=>{
+            const cats = sm.cats||{};
+            return {
+              m: sm.m.replace(" 2026",""),
+              Food:   Math.round(cats["Food"]||0),
+              Gas:    Math.round(cats["Gas"]||0),
+              Misc:   Math.round(cats["Misc"]||0),
+              Cat:    Math.round(cats["Cat"]||0),
+              Total:  Math.round(sm.spent||0),
+              Budget: Math.round(sm.budget||70400),
+            };
+          });
+
+          // ── Savings rate ── (live gross income + PVD% per month, from Supabase)
+          const savingsRateData = spendingMonths.map(sm=>{
+            const savCats = ["Emergency","Japan Fund","Retirement"];
+            const saved = (sm.transactions||[]).filter(t=>savCats.includes(t.cat)).reduce((s,t)=>s+t.amount,0);
+            const gross = sm.grossIncome || latestGrossIncome || 88733;
+            const pvdPctM = sm.pvdEmployeePct!=null ? sm.pvdEmployeePct : (latestEmployeePvdPct!=null ? latestEmployeePvdPct : 12);
+            const pvd = gross*pvdPctM/100;
+            return { m: sm.m.replace(" 2026",""), rate: Math.round((saved+pvd)/gross*100) };
+          });
+
+          return(
+          <div style={{display:"flex",flexDirection:"column",gap:11}}>
+
+          {planSubTab===null?(
+            <>
+              <div onClick={()=>setPlanSubTab("goals")} style={{...cardStyle,cursor:"pointer",display:"flex",alignItems:"center",gap:12}}>
+                <div style={{width:44,height:44,borderRadius:12,background:"rgba(129,140,248,0.12)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>💎</div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:13,fontWeight:700,color:TH.text}}>Goals</div>
+                  <div style={{fontSize:11,color:TH.muted,marginTop:2}}>Financial health 78 · Good</div>
+                </div>
+                <ChevronRight size={16} color={TH.dim}/>
+              </div>
+              <div onClick={()=>setPlanSubTab("debt")} style={{...cardStyle,cursor:"pointer",display:"flex",alignItems:"center",gap:12}}>
+                <div style={{width:44,height:44,borderRadius:12,background:"rgba(248,113,113,0.12)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>🏠</div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:13,fontWeight:700,color:TH.text}}>Debt</div>
+                  <div style={{fontSize:11,color:TH.muted,marginTop:2}}>Total debt {fmt(DEBT)}</div>
+                </div>
+                <ChevronRight size={16} color={TH.dim}/>
+              </div>
+              <div onClick={()=>setPlanSubTab("income")} style={{...cardStyle,cursor:"pointer",display:"flex",alignItems:"center",gap:12}}>
+                <div style={{width:44,height:44,borderRadius:12,background:"rgba(74,222,128,0.12)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>💵</div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:13,fontWeight:700,color:TH.text}}>Income</div>
+                  <div style={{fontSize:11,color:TH.muted,marginTop:2}}>Net {fmt(cashFlow.income-(CM.spent||0))} this month</div>
+                </div>
+                <ChevronRight size={16} color={TH.dim}/>
+              </div>
+              <div onClick={()=>setPlanSubTab("retirement")} style={{...cardStyle,cursor:"pointer",display:"flex",alignItems:"center",gap:12}}>
+                <div style={{width:44,height:44,borderRadius:12,background:"rgba(56,189,248,0.12)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>🎯</div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:13,fontWeight:700,color:TH.text}}>Retirement</div>
+                  <div style={{fontSize:11,color:TH.muted,marginTop:2}}>{fmt(RETIRE)} PVD · {pctToMilestone.toFixed(0)}% to ฿5M</div>
+                </div>
+                <ChevronRight size={16} color={TH.dim}/>
+              </div>
+              <div onClick={()=>setPlanSubTab("trends")} style={{...cardStyle,cursor:"pointer",display:"flex",alignItems:"center",gap:12}}>
+                <div style={{width:44,height:44,borderRadius:12,background:"rgba(251,191,36,0.12)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>📈</div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:13,fontWeight:700,color:TH.text}}>Trends</div>
+                  <div style={{fontSize:11,color:TH.muted,marginTop:2}}>Savings rate {SAVINGS_RATE}%</div>
+                </div>
+                <ChevronRight size={16} color={TH.dim}/>
+              </div>
+            </>
+          ):(
+          <>
+          <button onClick={()=>setPlanSubTab(null)} style={{display:"flex",alignItems:"center",gap:4,background:"transparent",border:"none",color:TH.muted,fontSize:11,fontWeight:600,cursor:"pointer",padding:"2px 0",marginBottom:-2}}>
+            <ChevronRight size={13} style={{transform:"rotate(180deg)"}}/> Plan
+          </button>
+
+          {planSubTab==="goals"&&(<>
+          <div style={{...card,background:"linear-gradient(135deg,rgba(99,102,241,0.12),rgba(56,189,248,0.07))"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <div>
+                <div style={{fontSize:9,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".07em",marginBottom:5}}>Financial Health</div>
+                <div style={{fontSize:46,fontWeight:900,letterSpacing:"-3px",background:"linear-gradient(135deg,#818CF8,#38BDF8)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",lineHeight:1}}>78</div>
+                <div style={{fontSize:11,color:TH.muted,marginTop:4}}>Good · 2 items need attention</div>
+              </div>
+              <div style={{fontSize:44}}>💎</div>
+            </div>
+            <div style={{height:5,background:darkMode?"rgba(255,255,255,0.07)":"rgba(0,0,0,0.07)",borderRadius:999,marginTop:14,overflow:"hidden"}}><div style={{height:"100%",width:"78%",background:"linear-gradient(90deg,#6366F1,#38BDF8)",borderRadius:999}}/></div>
+          </div>
+
+          <div style={cardStyle}>
+            <div style={{fontSize:12,fontWeight:700,marginBottom:12}}>Goals</div>
+            {[
+              {label:"Emergency", pct:EF_PCT,                                    color:TH.gold,   note:`${fmt(EF_BAL)} / ฿143K`},
+              {label:"Retirement",pct:Math.min(100,(PERSONAL+RETIRE)/5000000*100), color:TH.accent, note:`${fmt(PERSONAL)} + ${fmt(RETIRE)} = ${fmt(PERSONAL+RETIRE)} / ฿5M`},
+              {label:"Japan Fund",pct:Math.min(100,(cashFlow.travelFund||0)/120000*100),color:TH.accent2,note:`${fmt(cashFlow.travelFund||0)} / ฿120K`},
+            ].map((g,i)=>(
+              <div key={i} style={{marginBottom:i<2?14:0}}>
+                <div style={{display:"flex",justifyContent:"space-between",fontSize:11,marginBottom:2}}><span style={{fontWeight:600,color:TH.text2}}>{g.label}</span><span style={{fontWeight:700,color:g.color,fontFamily:TH.mono}}>{g.pct.toFixed(0)}%</span></div>
+                <div style={{fontSize:9,color:TH.muted,marginBottom:4}}>{g.note}</div>
+                <div style={{height:5,background:`${g.color}18`,borderRadius:999,overflow:"hidden"}}><div style={{height:"100%",width:`${g.pct}%`,background:g.color,borderRadius:999,transition:"width 1.2s ease"}}/></div>
+              </div>
+            ))}
+          </div>
+          </>)}
+
+          {planSubTab==="debt"&&(<>
+          <div style={cardStyle}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+              <div style={{fontSize:12,fontWeight:700}}>Debt Breakdown</div>
+              <button onClick={openAddDebt} style={{display:"flex",alignItems:"center",gap:4,background:"rgba(248,113,113,0.1)",border:"1px solid rgba(248,113,113,0.2)",borderRadius:9,padding:"5px 10px",fontSize:10,fontWeight:700,color:TH.red,cursor:"pointer"}}><Plus size={11}/> Debt</button>
+            </div>
+            {debts.map((d,i)=>{
+              const open=expandDebt===i;
+              return(
+                <div key={i} style={{marginBottom:i<debts.length-1?8:0}}>
+                  <div onClick={()=>setExpandDebt(open?null:i)} style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",padding:"9px 0",borderBottom:`1px solid ${TH.border}`}}>
+                    <div style={{display:"flex",alignItems:"center",gap:9}}>
+                      <div style={{width:32,height:32,borderRadius:9,background:"rgba(248,113,113,0.1)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14}}>{i===0?"🏠":"🏢"}</div>
+                      <div>
+                        <div style={{fontSize:12,fontWeight:700}}>{d.name}</div>
+                        <div style={{fontSize:9,color:TH.muted}}>{d.rate}% · {d.years}yr left</div>
+                      </div>
+                    </div>
+                    <div style={{display:"flex",alignItems:"center",gap:7}}>
+                      <div style={{textAlign:"right"}}>
+                        <div style={{fontSize:12,fontWeight:800,color:TH.red,fontFamily:TH.mono}}>{fmt(d.balance)}</div>
+                        <div style={{fontSize:9,color:TH.muted}}>{fmt(d.monthly)}/mo</div>
+                      </div>
+                      <button onClick={(e)=>{e.stopPropagation();openEditDebt(d);}} style={{width:22,height:22,borderRadius:7,background:"transparent",border:`1px solid ${TH.border}`,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",padding:0,flexShrink:0}}><Pencil size={10} color={TH.muted}/></button>
+                      <ChevronRight size={13} color={TH.dim} style={{transform:open?"rotate(90deg)":"none",transition:"transform .2s"}}/>
+                    </div>
+                  </div>
+                  {open&&(
+                    <div style={{padding:"10px 0",borderBottom:`1px solid ${TH.border}`,display:"grid",gridTemplateColumns:"1fr 1fr",gap:7,animation:"fadeIn .2s ease-out"}}>
+                      {[{l:"Monthly Interest",v:fmt(d.interest)},{l:"Principal",v:fmt(d.principal)},{l:"Rate",v:`${d.rate}%`},{l:"Years Left",v:`${d.years}yr`}].map((s,j)=>(
+                        <div key={j} style={{background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:9,padding:"8px 10px"}}>
+                          <div style={{fontSize:9,color:TH.muted,marginBottom:2}}>{s.l}</div>
+                          <div style={{fontSize:12,fontWeight:700,color:TH.text2,fontFamily:TH.mono}}>{s.v}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            <div style={{marginTop:10,padding:"9px 12px",background:"rgba(248,113,113,0.07)",borderRadius:11,border:"1px solid rgba(248,113,113,0.15)",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <span style={{fontSize:11,fontWeight:600,color:TH.red}}>Total Debt</span>
+              <span style={{fontSize:12,fontWeight:800,color:TH.red,fontFamily:TH.mono}}>{fmt(DEBT)}</span>
+            </div>
+          </div>
+          </>)}
+
+          {planSubTab==="income"&&(<>
+          <div style={cardStyle}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+              <div style={{fontSize:12,fontWeight:700}}>Cash Flow</div>
+              <button onClick={openEditIncome} style={{width:22,height:22,borderRadius:7,background:"transparent",border:`1px solid ${TH.border}`,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",padding:0}}><Pencil size={11} color={TH.muted}/></button>
+            </div>
+            {[
+              {l:"Income",  v:cashFlow.income,    c:TH.green,  s:"+"},
+              {l:"Spent",   v:CM.spent||0,         c:TH.red,    s:"−"},
+              {l:"Travel",  v:cashFlow.travelFund, c:TH.accent, s:"+"},
+              {l:"Invest",  v:cashFlow.investments,c:TH.accent2,s:"+"},
+            ].map((s,i)=>(
+              <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:9}}>
+                <span style={{fontSize:10,color:TH.muted}}>{s.l}</span>
+                <span style={{fontSize:11,fontWeight:700,color:s.c,fontFamily:TH.mono}}>{s.s}฿{(s.v||0).toLocaleString()}</span>
+              </div>
+            ))}
+            <div style={{borderTop:`1px solid ${TH.border}`,paddingTop:8,display:"flex",justifyContent:"space-between"}}>
+              <span style={{fontSize:11,fontWeight:700}}>Net</span>
+              <span style={{fontSize:12,fontWeight:800,color:cashFlow.income-(CM.spent||0)>=0?TH.green:TH.red,fontFamily:TH.mono}}>{fmt(cashFlow.income-(CM.spent||0))}</span>
+            </div>
+          </div>
+
           <div style={cardStyle}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
               <div style={{fontSize:12,fontWeight:700}}>Monthly Automation</div>
@@ -2465,7 +2794,9 @@ export default function App(){
               </div>
             ))}
           </div>
+          </>)}
 
+          {planSubTab==="retirement"&&(<>
           <div style={cardStyle}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
               <div>
@@ -2512,98 +2843,171 @@ export default function App(){
             </div>
           </div>
 
-          <div style={{...card,background:"linear-gradient(135deg,rgba(99,102,241,0.12),rgba(56,189,248,0.07))"}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-              <div>
-                <div style={{fontSize:9,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".07em",marginBottom:5}}>Financial Health</div>
-                <div style={{fontSize:46,fontWeight:900,letterSpacing:"-3px",background:"linear-gradient(135deg,#818CF8,#38BDF8)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",lineHeight:1}}>78</div>
-                <div style={{fontSize:11,color:TH.muted,marginTop:4}}>Good · 2 items need attention</div>
-              </div>
-              <div style={{fontSize:44}}>💎</div>
+          <div style={cardStyle}>
+            <div style={{fontSize:12,fontWeight:700,marginBottom:2}}>Retirement Projection</div>
+            <div style={{fontSize:10,color:TH.muted,marginBottom:4}}>{fmt(monthly)}/mo contributions (live avg) · Target ฿5M → ฿20M</div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",background:"rgba(129,140,248,0.07)",border:"1px solid rgba(129,140,248,0.18)",borderRadius:10,padding:"8px 12px",marginBottom:10}}>
+              <div><div style={{fontSize:8,color:TH.muted,fontWeight:600}}>ACTUAL TODAY</div><div style={{fontSize:14,fontWeight:800,color:TH.text,fontFamily:TH.mono}}>{fmt(currentPF)}</div></div>
+              <div style={{textAlign:"right"}}><div style={{fontSize:8,color:TH.muted,fontWeight:600}}>TO ฿5M GOAL</div><div style={{fontSize:14,fontWeight:800,color:"#818CF8",fontFamily:TH.mono}}>{pctToMilestone.toFixed(0)}%</div></div>
             </div>
-            <div style={{height:5,background:darkMode?"rgba(255,255,255,0.07)":"rgba(0,0,0,0.07)",borderRadius:999,marginTop:14,overflow:"hidden"}}><div style={{height:"100%",width:"78%",background:"linear-gradient(90deg,#6366F1,#38BDF8)",borderRadius:999}}/></div>
+            <div style={{display:"flex",gap:6,marginBottom:10,flexWrap:"wrap"}}>
+              {[{l:"Conservative 4%",c:"#94A3B8"},{l:"Moderate 6%",c:"#38BDF8"},{l:"Optimistic 8%",c:"#4ADE80"}].map((s,i)=>(
+                <div key={i} style={{display:"flex",alignItems:"center",gap:4}}>
+                  <div style={{width:10,height:3,borderRadius:999,background:s.c}}/>
+                  <span style={{fontSize:9,color:TH.muted}}>{s.l}</span>
+                </div>
+              ))}
+            </div>
+            <ResponsiveContainer width="100%" height={180}>
+              <AreaChart data={projData} margin={{top:4,right:4,left:0,bottom:0}}>
+                <defs>
+                  {[["cons","#94A3B8"],["mod","#38BDF8"],["opt","#4ADE80"]].map(([id,c])=>(
+                    <linearGradient key={id} id={`${id}Grad`} x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%"  stopColor={c} stopOpacity={0.2}/>
+                      <stop offset="95%" stopColor={c} stopOpacity={0}/>
+                    </linearGradient>
+                  ))}
+                </defs>
+                <XAxis dataKey="year" tick={{fontSize:9,fill:TH.muted}} axisLine={false} tickLine={false} interval={3}/>
+                <Tooltip formatter={(v)=>[`฿${Math.round(v/1000000*10)/10}M`,""]} contentStyle={{background:darkMode?"#0D1117":"#fff",border:`1px solid ${TH.border}`,borderRadius:10,fontSize:10}}/>
+                <ReferenceLine y={5000000}  stroke="#FBBF24" strokeDasharray="4 3" label={{value:"฿5M",fill:"#FBBF24",fontSize:9,position:"right"}}/>
+                <ReferenceLine y={20000000} stroke="#F472B6" strokeDasharray="4 3" label={{value:"฿20M",fill:"#F472B6",fontSize:9,position:"right"}}/>
+                <Area type="monotone" dataKey="Conservative" stroke="#94A3B8" strokeWidth={1.5} fill="url(#consGrad)" dot={false}/>
+                <Area type="monotone" dataKey="Moderate"     stroke="#38BDF8" strokeWidth={2}   fill="url(#modGrad)"  dot={false}/>
+                <Area type="monotone" dataKey="Optimistic"   stroke="#4ADE80" strokeWidth={1.5} fill="url(#optGrad)"  dot={false}/>
+              </AreaChart>
+            </ResponsiveContainer>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginTop:10}}>
+              {[{l:"Conservative",v:projFinal.Conservative,c:"#94A3B8"},{l:"Moderate",v:projFinal.Moderate,c:"#38BDF8"},{l:"Optimistic",v:projFinal.Optimistic,c:"#4ADE80"}].map((s,i)=>(
+                <div key={i} style={{background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:10,padding:"8px 10px",textAlign:"center"}}>
+                  <div style={{fontSize:8,color:TH.muted,marginBottom:3}}>{s.l}</div>
+                  <div style={{fontSize:13,fontWeight:800,color:s.c,fontFamily:TH.mono}}>{fmt(s.v)}</div>
+                  <div style={{fontSize:8,color:TH.muted}}>by {projFinal.year}</div>
+                </div>
+              ))}
+            </div>
+            <div style={{marginTop:10,padding:"8px 12px",background:"rgba(251,191,36,0.07)",border:"1px solid rgba(251,191,36,0.2)",borderRadius:10,fontSize:10,color:TH.text2}}>
+              <span style={{color:"#FBBF24",fontWeight:700}}>฿5M milestone</span> — {milestoneYear("Moderate")?`est. reached ${milestoneYear("Moderate")} at moderate returns`:`not yet reached by ${projFinal.year} at moderate returns`}. After that, compounding does the heavy lifting toward ฿20M. 🎯
+            </div>
           </div>
 
           <div style={cardStyle}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-              <div style={{fontSize:12,fontWeight:700}}>Debt Breakdown</div>
-              <button onClick={openAddDebt} style={{display:"flex",alignItems:"center",gap:4,background:"rgba(248,113,113,0.1)",border:"1px solid rgba(248,113,113,0.2)",borderRadius:9,padding:"5px 10px",fontSize:10,fontWeight:700,color:TH.red,cursor:"pointer"}}><Plus size={11}/> Debt</button>
-            </div>
-            {debts.map((d,i)=>{
-              const open=expandDebt===i;
+            <div style={{fontSize:12,fontWeight:700,marginBottom:12}}>Milestone Tracker</div>
+            {[
+              {label:"฿1M Net Worth",   target:1000000,  current:TOTAL-DEBT, done:false, est:"~2026"},
+              {label:"฿5M Portfolio",   target:5000000,  current:TOTAL,      done:false, est:"~2033"},
+              {label:"฿20M Retirement", target:20000000, current:TOTAL,      done:false, est:"~2042"},
+            ].map((ms,i)=>{
+              const pct = Math.min(100, ms.current/ms.target*100);
+              const colors = ["#FBBF24","#6366F1","#4ADE80"];
               return(
-                <div key={i} style={{marginBottom:i<debts.length-1?8:0}}>
-                  <div onClick={()=>setExpandDebt(open?null:i)} style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",padding:"9px 0",borderBottom:`1px solid ${TH.border}`}}>
-                    <div style={{display:"flex",alignItems:"center",gap:9}}>
-                      <div style={{width:32,height:32,borderRadius:9,background:"rgba(248,113,113,0.1)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14}}>{i===0?"🏠":"🏢"}</div>
-                      <div>
-                        <div style={{fontSize:12,fontWeight:700}}>{d.name}</div>
-                        <div style={{fontSize:9,color:TH.muted}}>{d.rate}% · {d.years}yr left</div>
-                      </div>
+                <div key={i} style={{marginBottom:i<2?14:0}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+                    <div style={{display:"flex",alignItems:"center",gap:6}}>
+                      <span style={{fontSize:13}}>{ms.done?"✅":"🎯"}</span>
+                      <span style={{fontSize:11,fontWeight:700,color:TH.text2}}>{ms.label}</span>
                     </div>
-                    <div style={{display:"flex",alignItems:"center",gap:7}}>
-                      <div style={{textAlign:"right"}}>
-                        <div style={{fontSize:12,fontWeight:800,color:TH.red,fontFamily:TH.mono}}>{fmt(d.balance)}</div>
-                        <div style={{fontSize:9,color:TH.muted}}>{fmt(d.monthly)}/mo</div>
-                      </div>
-                      <button onClick={(e)=>{e.stopPropagation();openEditDebt(d);}} style={{width:22,height:22,borderRadius:7,background:"transparent",border:`1px solid ${TH.border}`,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",padding:0,flexShrink:0}}><Pencil size={10} color={TH.muted}/></button>
-                      <ChevronRight size={13} color={TH.dim} style={{transform:open?"rotate(90deg)":"none",transition:"transform .2s"}}/>
+                    <div style={{textAlign:"right"}}>
+                      <span style={{fontSize:10,fontWeight:700,color:colors[i],fontFamily:TH.mono}}>{pct.toFixed(1)}%</span>
+                      <div style={{fontSize:8,color:TH.muted}}>est. {ms.est}</div>
                     </div>
                   </div>
-                  {open&&(
-                    <div style={{padding:"10px 0",borderBottom:`1px solid ${TH.border}`,display:"grid",gridTemplateColumns:"1fr 1fr",gap:7,animation:"fadeIn .2s ease-out"}}>
-                      {[{l:"Monthly Interest",v:fmt(d.interest)},{l:"Principal",v:fmt(d.principal)},{l:"Rate",v:`${d.rate}%`},{l:"Years Left",v:`${d.years}yr`}].map((s,j)=>(
-                        <div key={j} style={{background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:9,padding:"8px 10px"}}>
-                          <div style={{fontSize:9,color:TH.muted,marginBottom:2}}>{s.l}</div>
-                          <div style={{fontSize:12,fontWeight:700,color:TH.text2,fontFamily:TH.mono}}>{s.v}</div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
+                  <div style={{height:6,background:`${colors[i]}15`,borderRadius:999,overflow:"hidden"}}>
+                    <div style={{height:"100%",width:`${pct}%`,background:colors[i],borderRadius:999,transition:"width 1.2s ease"}}/>
+                  </div>
+                  <div style={{display:"flex",justifyContent:"space-between",fontSize:8,color:TH.muted,marginTop:3}}>
+                    <span>฿{(ms.current/1000000).toFixed(2)}M now</span>
+                    <span>฿{(ms.target/1000000).toFixed(0)}M target</span>
+                  </div>
                 </div>
               );
             })}
-            <div style={{marginTop:10,padding:"9px 12px",background:"rgba(248,113,113,0.07)",borderRadius:11,border:"1px solid rgba(248,113,113,0.15)",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-              <span style={{fontSize:11,fontWeight:600,color:TH.red}}>Total Debt</span>
-              <span style={{fontSize:12,fontWeight:800,color:TH.red,fontFamily:TH.mono}}>{fmt(DEBT)}</span>
+          </div>
+          </>)}
+
+          {planSubTab==="trends"&&(<>
+          <div style={cardStyle}>
+            <div style={{fontSize:12,fontWeight:700,marginBottom:4}}>Net Worth Trajectory</div>
+            <div style={{fontSize:10,color:TH.muted,marginBottom:12}}>Portfolio minus total debt</div>
+            <ResponsiveContainer width="100%" height={140}>
+              <AreaChart data={nwHistory} margin={{top:4,right:4,left:0,bottom:0}}>
+                <defs>
+                  <linearGradient id="nwGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%"  stopColor="#4ADE80" stopOpacity={0.3}/>
+                    <stop offset="95%" stopColor="#4ADE80" stopOpacity={0}/>
+                  </linearGradient>
+                </defs>
+                <XAxis dataKey="m" tick={{fontSize:10,fill:TH.muted}} axisLine={false} tickLine={false}/>
+                <Tooltip formatter={(v)=>[`฿${Math.round(v).toLocaleString()}`,""]} contentStyle={{background:darkMode?"#0D1117":"#fff",border:`1px solid ${TH.border}`,borderRadius:10,fontSize:10}}/>
+                <Area type="monotone" dataKey="nw" stroke="#4ADE80" strokeWidth={2} fill="url(#nwGrad)" name="Net Worth" dot={{fill:"#4ADE80",r:4}}/>
+              </AreaChart>
+            </ResponsiveContainer>
+            <div style={{display:"flex",justifyContent:"space-between",marginTop:8}}>
+              {nwHistory.map((h,i)=>(
+                <div key={i} style={{textAlign:"center"}}>
+                  <div style={{fontSize:9,color:TH.muted}}>{h.m}</div>
+                  <div style={{fontSize:11,fontWeight:700,color:TH.green,fontFamily:TH.mono}}>฿{(h.nw/1000).toFixed(0)}K</div>
+                  {i>0&&<div style={{fontSize:8,color:TH.green}}>+฿{((h.nw-nwHistory[i-1].nw)/1000).toFixed(0)}K</div>}
+                </div>
+              ))}
             </div>
           </div>
 
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}}>
-            <div style={cardStyle}>
-              <div style={{fontSize:12,fontWeight:700,marginBottom:12}}>Goals</div>
-              {[
-                {label:"Emergency", pct:EF_PCT,                                    color:TH.gold,   note:`${fmt(EF_BAL)} / ฿143K`},
-                {label:"Retirement",pct:Math.min(100,(PERSONAL+RETIRE)/5000000*100), color:TH.accent, note:`${fmt(PERSONAL)} + ${fmt(RETIRE)} = ${fmt(PERSONAL+RETIRE)} / ฿5M`},
-                {label:"Japan Fund",pct:Math.min(100,(cashFlow.travelFund||0)/120000*100),color:TH.accent2,note:`${fmt(cashFlow.travelFund||0)} / ฿120K`},
-              ].map((g,i)=>(
-                <div key={i} style={{marginBottom:i<2?14:0}}>
-                  <div style={{display:"flex",justifyContent:"space-between",fontSize:11,marginBottom:2}}><span style={{fontWeight:600,color:TH.text2}}>{g.label}</span><span style={{fontWeight:700,color:g.color,fontFamily:TH.mono}}>{g.pct.toFixed(0)}%</span></div>
-                  <div style={{fontSize:9,color:TH.muted,marginBottom:4}}>{g.note}</div>
-                  <div style={{height:5,background:`${g.color}18`,borderRadius:999,overflow:"hidden"}}><div style={{height:"100%",width:`${g.pct}%`,background:g.color,borderRadius:999,transition:"width 1.2s ease"}}/></div>
+          <div style={cardStyle}>
+            <div style={{fontSize:12,fontWeight:700,marginBottom:2}}>Monthly Spending Trend</div>
+            <div style={{fontSize:10,color:TH.muted,marginBottom:12}}>Actual vs budget · Apr–Jul 2026</div>
+            <ResponsiveContainer width="100%" height={150}>
+              <BarChart data={spendTrend} margin={{top:4,right:4,left:0,bottom:0}} barSize={18}>
+                <XAxis dataKey="m" tick={{fontSize:10,fill:TH.muted}} axisLine={false} tickLine={false}/>
+                <Tooltip formatter={(v,n)=>[`฿${Math.round(v).toLocaleString()}`,n]} contentStyle={{background:darkMode?"#0D1117":"#fff",border:`1px solid ${TH.border}`,borderRadius:10,fontSize:10}}/>
+                <Bar dataKey="Total"  fill="#6366F1" radius={[4,4,0,0]} name="Spent"/>
+                <Bar dataKey="Budget" fill="rgba(99,102,241,0.15)" radius={[4,4,0,0]} name="Budget"/>
+              </BarChart>
+            </ResponsiveContainer>
+            <div style={{display:"flex",gap:12,marginTop:8,justifyContent:"center"}}>
+              <div style={{display:"flex",alignItems:"center",gap:4}}><div style={{width:10,height:10,borderRadius:3,background:"#6366F1"}}/><span style={{fontSize:9,color:TH.muted}}>Spent</span></div>
+              <div style={{display:"flex",alignItems:"center",gap:4}}><div style={{width:10,height:10,borderRadius:3,background:"rgba(99,102,241,0.3)"}}/><span style={{fontSize:9,color:TH.muted}}>Budget ฿70,400</span></div>
+            </div>
+          </div>
+
+          <div style={cardStyle}>
+            <div style={{fontSize:12,fontWeight:700,marginBottom:2}}>Spending by Category</div>
+            <div style={{fontSize:10,color:TH.muted,marginBottom:12}}>Variable spending only · Apr–Jul</div>
+            <ResponsiveContainer width="100%" height={150}>
+              <BarChart data={spendTrend} margin={{top:4,right:4,left:0,bottom:0}} barSize={14}>
+                <XAxis dataKey="m" tick={{fontSize:10,fill:TH.muted}} axisLine={false} tickLine={false}/>
+                <Tooltip formatter={(v,n)=>[`฿${Math.round(v).toLocaleString()}`,n]} contentStyle={{background:darkMode?"#0D1117":"#fff",border:`1px solid ${TH.border}`,borderRadius:10,fontSize:10}}/>
+                <Bar dataKey="Food" stackId="a" fill="#22C55E" name="Food"/>
+                <Bar dataKey="Gas"  stackId="a" fill="#94A3B8" name="Gas"/>
+                <Bar dataKey="Cat"  stackId="a" fill="#86EFAC" name="Cat"/>
+                <Bar dataKey="Misc" stackId="a" fill="#CBD5E1" name="Misc" radius={[4,4,0,0]}/>
+              </BarChart>
+            </ResponsiveContainer>
+            <div style={{display:"flex",gap:10,marginTop:8,justifyContent:"center",flexWrap:"wrap"}}>
+              {[{l:"Food",c:"#22C55E"},{l:"Gas",c:"#94A3B8"},{l:"Cat",c:"#86EFAC"},{l:"Misc",c:"#CBD5E1"}].map((s,i)=>(
+                <div key={i} style={{display:"flex",alignItems:"center",gap:4}}>
+                  <div style={{width:8,height:8,borderRadius:2,background:s.c}}/>
+                  <span style={{fontSize:9,color:TH.muted}}>{s.l}</span>
                 </div>
               ))}
             </div>
-            <div style={cardStyle}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-                <div style={{fontSize:12,fontWeight:700}}>Cash Flow</div>
-                <button onClick={openEditIncome} style={{width:22,height:22,borderRadius:7,background:"transparent",border:`1px solid ${TH.border}`,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",padding:0}}><Pencil size={11} color={TH.muted}/></button>
-              </div>
-              {[
-                {l:"Income",  v:cashFlow.income,    c:TH.green,  s:"+"},
-                {l:"Spent",   v:CM.spent||0,         c:TH.red,    s:"−"},
-                {l:"Travel",  v:cashFlow.travelFund, c:TH.accent, s:"+"},
-                {l:"Invest",  v:cashFlow.investments,c:TH.accent2,s:"+"},
-              ].map((s,i)=>(
-                <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:9}}>
-                  <span style={{fontSize:10,color:TH.muted}}>{s.l}</span>
-                  <span style={{fontSize:11,fontWeight:700,color:s.c,fontFamily:TH.mono}}>{s.s}฿{(s.v||0).toLocaleString()}</span>
-                </div>
-              ))}
-              <div style={{borderTop:`1px solid ${TH.border}`,paddingTop:8,display:"flex",justifyContent:"space-between"}}>
-                <span style={{fontSize:11,fontWeight:700}}>Net</span>
-                <span style={{fontSize:12,fontWeight:800,color:cashFlow.income-(CM.spent||0)>=0?TH.green:TH.red,fontFamily:TH.mono}}>{fmt(cashFlow.income-(CM.spent||0))}</span>
-              </div>
+          </div>
+
+          <div style={cardStyle}>
+            <div style={{fontSize:12,fontWeight:700,marginBottom:2}}>Savings Rate</div>
+            <div style={{fontSize:10,color:TH.muted,marginBottom:12}}>% of gross income saved/invested incl. PVD</div>
+            <ResponsiveContainer width="100%" height={100}>
+              <BarChart data={savingsRateData} margin={{top:4,right:4,left:0,bottom:0}} barSize={32}>
+                <XAxis dataKey="m" tick={{fontSize:10,fill:TH.muted}} axisLine={false} tickLine={false}/>
+                <Tooltip formatter={(v)=>[`${v}%`,"Savings Rate"]} contentStyle={{background:darkMode?"#0D1117":"#fff",border:`1px solid ${TH.border}`,borderRadius:10,fontSize:10}}/>
+                <ReferenceLine y={30} stroke="#FBBF24" strokeDasharray="3 3" label={{value:"30% target",fill:"#FBBF24",fontSize:8,position:"right"}}/>
+                <Bar dataKey="rate" fill="#38BDF8" radius={[6,6,0,0]} name="Savings Rate"/>
+              </BarChart>
+            </ResponsiveContainer>
+            <div style={{marginTop:10,textAlign:"center"}}>
+              <span style={{fontSize:11,color:TH.muted}}>Current rate: </span>
+              <span style={{fontSize:13,fontWeight:800,color:"#38BDF8",fontFamily:TH.mono}}>{SAVINGS_RATE}%</span>
+              <span style={{fontSize:10,color:TH.green,marginLeft:6}}>✓ Well above 30% benchmark</span>
             </div>
           </div>
 
@@ -2623,7 +3027,12 @@ export default function App(){
             ))}
             {REBAL.every(r=>r.diff===0)&&<div style={{textAlign:"center",padding:16,color:TH.green,fontSize:12,fontWeight:600}}>✅ Portfolio balanced!</div>}
           </div>
-        </div>)}
+          </>)}
+          </>
+          )}
+          </div>
+          );
+        })()}
 
         {/* ══ WEALTH ADVISOR ══ */}
         {tab==="wealth"&&(<div style={{display:"flex",flexDirection:"column",gap:12}}>
@@ -3209,239 +3618,6 @@ export default function App(){
             </button>
           </div>
         </div>
-        );
-      })()}
-
-      {/* ══ TRENDS TAB ══ */}
-      {tab==="trends"&&(()=>{
-        // ── Spending trend data ──
-        const spendTrend = spendingMonths.map(sm=>{
-          const cats = sm.cats||{};
-          return {
-            m: sm.m.replace(" 2026",""),
-            Food:   Math.round(cats["Food"]||0),
-            Gas:    Math.round(cats["Gas"]||0),
-            Misc:   Math.round(cats["Misc"]||0),
-            Cat:    Math.round(cats["Cat"]||0),
-            Total:  Math.round(sm.spent||0),
-            Budget: Math.round(sm.budget||70400),
-          };
-        });
-
-        // ── Net worth history ──
-        const nwHistory = [
-          {m:"May",portfolio:1534749,debt:796385,nw:738364},
-          {m:"Jun",portfolio:1630948,debt:796385,nw:834563},
-          {m:"Jul",portfolio:1640385,debt:796385,nw:900000},
-        ];
-
-        // ── Retirement projection ──
-        const currentAge = 42;
-        const retireAge  = 60;
-        const years      = retireAge - currentAge;
-        const currentPF  = (TOTAL-DEBT) || 1640385;
-        const monthly    = liveMonthlyContribution || 30000; // live avg of PVD + Retirement-cat transactions
-        const projData   = Array.from({length:years+1},(_,i)=>{
-          const label = (2026+i).toString();
-          const base  = currentPF;
-          const calc  = (r)=>{
-            let v=base;
-            for(let y=0;y<i;y++) v=(v+monthly*12)*( 1+r);
-            return Math.round(v);
-          };
-          return { year:label, Conservative:calc(0.04), Moderate:calc(0.06), Optimistic:calc(0.08) };
-        });
-        const projFinal = projData[projData.length-1];
-        // First projected year each scenario crosses the ฿5M milestone (null if never, within the window)
-        const milestoneYear = (key)=>{ const hit=projData.find(p=>p[key]>=5000000); return hit?hit.year:null; };
-        const pctToMilestone = Math.min(100, currentPF/5000000*100);
-
-        // ── Savings rate ── (live gross income + PVD% per month, from Supabase)
-        const savingsRateData = spendingMonths.map(sm=>{
-          const savCats = ["Emergency","Japan Fund","Retirement"];
-          const saved = (sm.transactions||[]).filter(t=>savCats.includes(t.cat)).reduce((s,t)=>s+t.amount,0);
-          const gross = sm.grossIncome || latestGrossIncome || 88733;
-          const pvdPctM = sm.pvdEmployeePct!=null ? sm.pvdEmployeePct : (latestEmployeePvdPct!=null ? latestEmployeePvdPct : 12);
-          const pvd = gross*pvdPctM/100;
-          return { m: sm.m.replace(" 2026",""), rate: Math.round((saved+pvd)/gross*100) };
-        });
-
-        return(
-          <div style={{display:"flex",flexDirection:"column",gap:12}}>
-
-            {/* ── Net Worth Trajectory ── */}
-            <div style={cardStyle}>
-              <div style={{fontSize:12,fontWeight:700,marginBottom:4}}>Net Worth Trajectory</div>
-              <div style={{fontSize:10,color:TH.muted,marginBottom:12}}>Portfolio minus total debt</div>
-              <ResponsiveContainer width="100%" height={140}>
-                <AreaChart data={nwHistory} margin={{top:4,right:4,left:0,bottom:0}}>
-                  <defs>
-                    <linearGradient id="nwGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%"  stopColor="#4ADE80" stopOpacity={0.3}/>
-                      <stop offset="95%" stopColor="#4ADE80" stopOpacity={0}/>
-                    </linearGradient>
-                  </defs>
-                  <XAxis dataKey="m" tick={{fontSize:10,fill:TH.muted}} axisLine={false} tickLine={false}/>
-                  <Tooltip formatter={(v)=>[`฿${Math.round(v).toLocaleString()}`,""]} contentStyle={{background:darkMode?"#0D1117":"#fff",border:`1px solid ${TH.border}`,borderRadius:10,fontSize:10}}/>
-                  <Area type="monotone" dataKey="nw" stroke="#4ADE80" strokeWidth={2} fill="url(#nwGrad)" name="Net Worth" dot={{fill:"#4ADE80",r:4}}/>
-                </AreaChart>
-              </ResponsiveContainer>
-              <div style={{display:"flex",justifyContent:"space-between",marginTop:8}}>
-                {nwHistory.map((h,i)=>(
-                  <div key={i} style={{textAlign:"center"}}>
-                    <div style={{fontSize:9,color:TH.muted}}>{h.m}</div>
-                    <div style={{fontSize:11,fontWeight:700,color:TH.green,fontFamily:TH.mono}}>฿{(h.nw/1000).toFixed(0)}K</div>
-                    {i>0&&<div style={{fontSize:8,color:TH.green}}>+฿{((h.nw-nwHistory[i-1].nw)/1000).toFixed(0)}K</div>}
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* ── Retirement Projection ── */}
-            <div style={cardStyle}>
-              <div style={{fontSize:12,fontWeight:700,marginBottom:2}}>Retirement Projection</div>
-              <div style={{fontSize:10,color:TH.muted,marginBottom:4}}>{fmt(monthly)}/mo contributions (live avg) · Target ฿5M → ฿20M</div>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",background:"rgba(129,140,248,0.07)",border:"1px solid rgba(129,140,248,0.18)",borderRadius:10,padding:"8px 12px",marginBottom:10}}>
-                <div><div style={{fontSize:8,color:TH.muted,fontWeight:600}}>ACTUAL TODAY</div><div style={{fontSize:14,fontWeight:800,color:TH.text,fontFamily:TH.mono}}>{fmt(currentPF)}</div></div>
-                <div style={{textAlign:"right"}}><div style={{fontSize:8,color:TH.muted,fontWeight:600}}>TO ฿5M GOAL</div><div style={{fontSize:14,fontWeight:800,color:"#818CF8",fontFamily:TH.mono}}>{pctToMilestone.toFixed(0)}%</div></div>
-              </div>
-              <div style={{display:"flex",gap:6,marginBottom:10,flexWrap:"wrap"}}>
-                {[{l:"Conservative 4%",c:"#94A3B8"},{l:"Moderate 6%",c:"#38BDF8"},{l:"Optimistic 8%",c:"#4ADE80"}].map((s,i)=>(
-                  <div key={i} style={{display:"flex",alignItems:"center",gap:4}}>
-                    <div style={{width:10,height:3,borderRadius:999,background:s.c}}/>
-                    <span style={{fontSize:9,color:TH.muted}}>{s.l}</span>
-                  </div>
-                ))}
-              </div>
-              <ResponsiveContainer width="100%" height={180}>
-                <AreaChart data={projData} margin={{top:4,right:4,left:0,bottom:0}}>
-                  <defs>
-                    {[["cons","#94A3B8"],["mod","#38BDF8"],["opt","#4ADE80"]].map(([id,c])=>(
-                      <linearGradient key={id} id={`${id}Grad`} x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%"  stopColor={c} stopOpacity={0.2}/>
-                        <stop offset="95%" stopColor={c} stopOpacity={0}/>
-                      </linearGradient>
-                    ))}
-                  </defs>
-                  <XAxis dataKey="year" tick={{fontSize:9,fill:TH.muted}} axisLine={false} tickLine={false} interval={3}/>
-                  <Tooltip formatter={(v)=>[`฿${Math.round(v/1000000*10)/10}M`,""]} contentStyle={{background:darkMode?"#0D1117":"#fff",border:`1px solid ${TH.border}`,borderRadius:10,fontSize:10}}/>
-                  <ReferenceLine y={5000000}  stroke="#FBBF24" strokeDasharray="4 3" label={{value:"฿5M",fill:"#FBBF24",fontSize:9,position:"right"}}/>
-                  <ReferenceLine y={20000000} stroke="#F472B6" strokeDasharray="4 3" label={{value:"฿20M",fill:"#F472B6",fontSize:9,position:"right"}}/>
-                  <Area type="monotone" dataKey="Conservative" stroke="#94A3B8" strokeWidth={1.5} fill="url(#consGrad)" dot={false}/>
-                  <Area type="monotone" dataKey="Moderate"     stroke="#38BDF8" strokeWidth={2}   fill="url(#modGrad)"  dot={false}/>
-                  <Area type="monotone" dataKey="Optimistic"   stroke="#4ADE80" strokeWidth={1.5} fill="url(#optGrad)"  dot={false}/>
-                </AreaChart>
-              </ResponsiveContainer>
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginTop:10}}>
-                {[{l:"Conservative",v:projFinal.Conservative,c:"#94A3B8"},{l:"Moderate",v:projFinal.Moderate,c:"#38BDF8"},{l:"Optimistic",v:projFinal.Optimistic,c:"#4ADE80"}].map((s,i)=>(
-                  <div key={i} style={{background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:10,padding:"8px 10px",textAlign:"center"}}>
-                    <div style={{fontSize:8,color:TH.muted,marginBottom:3}}>{s.l}</div>
-                    <div style={{fontSize:13,fontWeight:800,color:s.c,fontFamily:TH.mono}}>{fmt(s.v)}</div>
-                    <div style={{fontSize:8,color:TH.muted}}>by {projFinal.year}</div>
-                  </div>
-                ))}
-              </div>
-              <div style={{marginTop:10,padding:"8px 12px",background:"rgba(251,191,36,0.07)",border:"1px solid rgba(251,191,36,0.2)",borderRadius:10,fontSize:10,color:TH.text2}}>
-                <span style={{color:"#FBBF24",fontWeight:700}}>฿5M milestone</span> — {milestoneYear("Moderate")?`est. reached ${milestoneYear("Moderate")} at moderate returns`:`not yet reached by ${projFinal.year} at moderate returns`}. After that, compounding does the heavy lifting toward ฿20M. 🎯
-              </div>
-            </div>
-
-            {/* ── Spending Trends ── */}
-            <div style={cardStyle}>
-              <div style={{fontSize:12,fontWeight:700,marginBottom:2}}>Monthly Spending Trend</div>
-              <div style={{fontSize:10,color:TH.muted,marginBottom:12}}>Actual vs budget · Apr–Jul 2026</div>
-              <ResponsiveContainer width="100%" height={150}>
-                <BarChart data={spendTrend} margin={{top:4,right:4,left:0,bottom:0}} barSize={18}>
-                  <XAxis dataKey="m" tick={{fontSize:10,fill:TH.muted}} axisLine={false} tickLine={false}/>
-                  <Tooltip formatter={(v,n)=>[`฿${Math.round(v).toLocaleString()}`,n]} contentStyle={{background:darkMode?"#0D1117":"#fff",border:`1px solid ${TH.border}`,borderRadius:10,fontSize:10}}/>
-                  <Bar dataKey="Total"  fill="#6366F1" radius={[4,4,0,0]} name="Spent"/>
-                  <Bar dataKey="Budget" fill="rgba(99,102,241,0.15)" radius={[4,4,0,0]} name="Budget"/>
-                </BarChart>
-              </ResponsiveContainer>
-              <div style={{display:"flex",gap:12,marginTop:8,justifyContent:"center"}}>
-                <div style={{display:"flex",alignItems:"center",gap:4}}><div style={{width:10,height:10,borderRadius:3,background:"#6366F1"}}/><span style={{fontSize:9,color:TH.muted}}>Spent</span></div>
-                <div style={{display:"flex",alignItems:"center",gap:4}}><div style={{width:10,height:10,borderRadius:3,background:"rgba(99,102,241,0.3)"}}/><span style={{fontSize:9,color:TH.muted}}>Budget ฿70,400</span></div>
-              </div>
-            </div>
-
-            {/* ── Category Breakdown Trend ── */}
-            <div style={cardStyle}>
-              <div style={{fontSize:12,fontWeight:700,marginBottom:2}}>Spending by Category</div>
-              <div style={{fontSize:10,color:TH.muted,marginBottom:12}}>Variable spending only · Apr–Jul</div>
-              <ResponsiveContainer width="100%" height={150}>
-                <BarChart data={spendTrend} margin={{top:4,right:4,left:0,bottom:0}} barSize={14}>
-                  <XAxis dataKey="m" tick={{fontSize:10,fill:TH.muted}} axisLine={false} tickLine={false}/>
-                  <Tooltip formatter={(v,n)=>[`฿${Math.round(v).toLocaleString()}`,n]} contentStyle={{background:darkMode?"#0D1117":"#fff",border:`1px solid ${TH.border}`,borderRadius:10,fontSize:10}}/>
-                  <Bar dataKey="Food" stackId="a" fill="#22C55E" name="Food"/>
-                  <Bar dataKey="Gas"  stackId="a" fill="#94A3B8" name="Gas"/>
-                  <Bar dataKey="Cat"  stackId="a" fill="#86EFAC" name="Cat"/>
-                  <Bar dataKey="Misc" stackId="a" fill="#CBD5E1" name="Misc" radius={[4,4,0,0]}/>
-                </BarChart>
-              </ResponsiveContainer>
-              <div style={{display:"flex",gap:10,marginTop:8,justifyContent:"center",flexWrap:"wrap"}}>
-                {[{l:"Food",c:"#22C55E"},{l:"Gas",c:"#94A3B8"},{l:"Cat",c:"#86EFAC"},{l:"Misc",c:"#CBD5E1"}].map((s,i)=>(
-                  <div key={i} style={{display:"flex",alignItems:"center",gap:4}}>
-                    <div style={{width:8,height:8,borderRadius:2,background:s.c}}/>
-                    <span style={{fontSize:9,color:TH.muted}}>{s.l}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* ── Savings Rate ── */}
-            <div style={cardStyle}>
-              <div style={{fontSize:12,fontWeight:700,marginBottom:2}}>Savings Rate</div>
-              <div style={{fontSize:10,color:TH.muted,marginBottom:12}}>% of gross income saved/invested incl. PVD</div>
-              <ResponsiveContainer width="100%" height={100}>
-                <BarChart data={savingsRateData} margin={{top:4,right:4,left:0,bottom:0}} barSize={32}>
-                  <XAxis dataKey="m" tick={{fontSize:10,fill:TH.muted}} axisLine={false} tickLine={false}/>
-                  <Tooltip formatter={(v)=>[`${v}%`,"Savings Rate"]} contentStyle={{background:darkMode?"#0D1117":"#fff",border:`1px solid ${TH.border}`,borderRadius:10,fontSize:10}}/>
-                  <ReferenceLine y={30} stroke="#FBBF24" strokeDasharray="3 3" label={{value:"30% target",fill:"#FBBF24",fontSize:8,position:"right"}}/>
-                  <Bar dataKey="rate" fill="#38BDF8" radius={[6,6,0,0]} name="Savings Rate"/>
-                </BarChart>
-              </ResponsiveContainer>
-              <div style={{marginTop:10,textAlign:"center"}}>
-                <span style={{fontSize:11,color:TH.muted}}>Current rate: </span>
-                <span style={{fontSize:13,fontWeight:800,color:"#38BDF8",fontFamily:TH.mono}}>{SAVINGS_RATE}%</span>
-                <span style={{fontSize:10,color:TH.green,marginLeft:6}}>✓ Well above 30% benchmark</span>
-              </div>
-            </div>
-
-            {/* ── Portfolio Milestones ── */}
-            <div style={cardStyle}>
-              <div style={{fontSize:12,fontWeight:700,marginBottom:12}}>Milestone Tracker</div>
-              {[
-                {label:"฿1M Net Worth",   target:1000000,  current:TOTAL-DEBT, done:false, est:"~2026"},
-                {label:"฿5M Portfolio",   target:5000000,  current:TOTAL,      done:false, est:"~2033"},
-                {label:"฿20M Retirement", target:20000000, current:TOTAL,      done:false, est:"~2042"},
-              ].map((ms,i)=>{
-                const pct = Math.min(100, ms.current/ms.target*100);
-                const colors = ["#FBBF24","#6366F1","#4ADE80"];
-                return(
-                  <div key={i} style={{marginBottom:i<2?14:0}}>
-                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
-                      <div style={{display:"flex",alignItems:"center",gap:6}}>
-                        <span style={{fontSize:13}}>{ms.done?"✅":"🎯"}</span>
-                        <span style={{fontSize:11,fontWeight:700,color:TH.text2}}>{ms.label}</span>
-                      </div>
-                      <div style={{textAlign:"right"}}>
-                        <span style={{fontSize:10,fontWeight:700,color:colors[i],fontFamily:TH.mono}}>{pct.toFixed(1)}%</span>
-                        <div style={{fontSize:8,color:TH.muted}}>est. {ms.est}</div>
-                      </div>
-                    </div>
-                    <div style={{height:6,background:`${colors[i]}15`,borderRadius:999,overflow:"hidden"}}>
-                      <div style={{height:"100%",width:`${pct}%`,background:colors[i],borderRadius:999,transition:"width 1.2s ease"}}/>
-                    </div>
-                    <div style={{display:"flex",justifyContent:"space-between",fontSize:8,color:TH.muted,marginTop:3}}>
-                      <span>฿{(ms.current/1000000).toFixed(2)}M now</span>
-                      <span>฿{(ms.target/1000000).toFixed(0)}M target</span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-          </div>
         );
       })()}
 
