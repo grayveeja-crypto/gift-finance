@@ -113,6 +113,18 @@ function getAlloc(holdings){
 
 const MO=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
+// Current calendar month as "Sep 2026", matching the label format used across spending/debts.
+function curMonthLabel(){ const d=new Date(); return `${MO[d.getMonth()]} ${d.getFullYear()}`; }
+// Chronological rank for a "Mon YYYY" label so months can be compared/sorted; unset/legacy
+// rows (no month) rank lowest so any dated row supersedes them as "latest".
+function monthRank(m){
+  if(!m) return -1;
+  const parts=String(m).trim().split(" ");
+  const yr=parseInt(parts[1],10);
+  const idx=MO.indexOf(String(parts[0]).slice(0,3));
+  return (isFinite(yr)?yr:0)*12 + (idx>=0?idx:0);
+}
+
 // ─── SUPABASE MAPPERS ────────────────────────────────────────────────────────
 function mapHoldingRow(r){
   return {
@@ -124,7 +136,7 @@ function mapHoldingRow(r){
 
 function mapDebtRow(r){
   return {
-    id: r.id, name: r.name, balance: pn(r.balance), rate: pn(r.rate), monthly: pn(r.monthly),
+    id: r.id, name: r.name, month: r.month || null, balance: pn(r.balance), rate: pn(r.rate), monthly: pn(r.monthly),
     interest: pn(r.interest), principal: pn(r.principal), years: pn(r.years),
   };
 }
@@ -2539,7 +2551,7 @@ export default function App(){
                   type="date"
                   value={expenseForm.date}
                   onChange={e=>setExpenseForm(f=>({...f,date:e.target.value}))}
-                  style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 12px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}
+                  style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 12px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box",colorScheme:darkMode?"dark":"light",WebkitAppearance:"none",appearance:"none"}}
                 />
               </div>
               <div>
@@ -3299,7 +3311,7 @@ export default function App(){
                   type="date"
                   value={expenseForm.date}
                   onChange={e=>setExpenseForm(f=>({...f,date:e.target.value}))}
-                  style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 12px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}
+                  style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 12px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box",colorScheme:darkMode?"dark":"light",WebkitAppearance:"none",appearance:"none"}}
                 />
               </div>
               <div>
