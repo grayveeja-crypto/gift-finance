@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Home, BarChart2, CreditCard, Target, Plus, RefreshCw, ChevronRight, X, Send, RotateCcw, Search, TrendingUp, TrendingDown, Shield, Zap, Sparkles, AlertTriangle, ArrowRight, Utensils, Heart, PiggyBank, Plane, Fuel, Smartphone, Wifi, Tv, Cat as CatIcon, Bus, MoreHorizontal, ShoppingCart, PartyPopper, Stethoscope, GraduationCap, Shirt, Gift as GiftIcon, Wine, MapPin, Pencil } from "lucide-react";
+import { Home, BarChart2, CreditCard, Target, Plus, RefreshCw, ChevronRight, X, Send, RotateCcw, Search, TrendingUp, TrendingDown, Shield, Zap, Sparkles, AlertTriangle, ArrowRight, Utensils, Heart, PiggyBank, Plane, Fuel, Smartphone, Wifi, Tv, Cat as CatIcon, Bus, MoreHorizontal, ShoppingCart, PartyPopper, Stethoscope, GraduationCap, Shirt, Gift as GiftIcon, Wine, MapPin, Pencil, Download } from "lucide-react";
 import { AreaChart, Area, ResponsiveContainer, PieChart, Pie, Cell, Tooltip, XAxis, BarChart, Bar, Legend, ReferenceLine } from "recharts";
 import { supabase } from "./lib/supabaseClient";
 
@@ -159,6 +159,29 @@ function mapDebtRow(r){
   };
 }
 
+// ─── CSV EXPORT ────────────────────────────────────────────────────────────
+// One combined file (Transactions / Holdings History / Debt History, each its own section)
+// rather than three separate downloads — more reliable on mobile browsers, which sometimes
+// block multiple simultaneous programmatic downloads.
+function csvEscape(v){
+  if(v==null) return "";
+  const s = String(v);
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s;
+}
+function toCSV(rows, columns){
+  const header = columns.map(c=>csvEscape(c.label)).join(",");
+  const lines = rows.map(r=>columns.map(c=>csvEscape(typeof c.get==="function"?c.get(r):r[c.key])).join(","));
+  return [header,...lines].join("\n");
+}
+function downloadTextFile(filename, text){
+  const blob = new Blob([text], {type:"text/csv;charset=utf-8;"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename; a.style.display = "none";
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(()=>URL.revokeObjectURL(url), 1000);
+}
+
 function buildSpendingMonths(spendingRows, txnRows){
   const byMonth = {};
   (spendingRows||[]).forEach(s=>{ byMonth[s.month] = { m:s.month, budget:pn(s.budget), income:pn(s.income), grossIncome:pn(s.gross_income)||null, pvdEmployeePct:pn(s.pvd_pct)||null, pvdEmployerPct:pn(s.pvd_employer_pct)||null, transactions:[], cats:{} }; });
@@ -201,7 +224,7 @@ function Counter({to,dur=1000,prefix="฿"}){
 }
 
 // ─── PANELS ──────────────────────────────────────────────────────────────────
-function ProfilePanel({open,onClose,photo,onPhotoChange,name,darkMode,setDarkMode}){
+function ProfilePanel({open,onClose,photo,onPhotoChange,name,darkMode,setDarkMode,onExport}){
   if(!open) return null;
   const TH = darkMode ? T : LIGHT_T;
   return(
@@ -230,6 +253,11 @@ function ProfilePanel({open,onClose,photo,onPhotoChange,name,darkMode,setDarkMod
           <span style={{fontSize:12,color:TH.muted}}>Appearance</span>
           <button onClick={()=>setDarkMode(d=>!d)} style={{display:"flex",alignItems:"center",gap:6,background:"rgba(99,102,241,0.1)",border:"1px solid rgba(99,102,241,0.25)",borderRadius:20,padding:"4px 12px",cursor:"pointer",fontSize:11,fontWeight:600,color:TH.accent}}><span style={{fontSize:13}}>{darkMode?"☀️":"🌙"}</span>{darkMode?"Light":"Dark"}</button>
         </div>
+        {onExport&&(
+          <button onClick={onExport} style={{width:"100%",marginTop:16,display:"flex",alignItems:"center",justifyContent:"center",gap:7,padding:"11px 0",borderRadius:12,border:`1px solid ${TH.border}`,background:TH.surf,color:TH.text2,fontSize:12,fontWeight:700,cursor:"pointer"}}>
+            <Download size={13}/> Export Data (CSV)
+          </button>
+        )}
       </div>
     </div>
   );
@@ -406,7 +434,17 @@ export default function App(){
   const [debts,setDebts]=useState(FB_D); // latest month per debt name — used everywhere as "current" debt
   const [debtHistory,setDebtHistory]=useState([]); // every logged month, for the payoff trend + month picker
   const targetAlloc = FB_T;
-  const history = FB_HIST;
+  // Real net worth history — every fund's value minus every debt's balance, forward-filled at
+  // each month either was logged in. Falls back to placeholder points until there's 2+ months
+  // of real Fund/Debt history to chart. Shared by the Overview sparkline+MoM delta and the
+  // Plan > Trends Net Worth Trajectory chart, instead of each computing (or faking) its own.
+  const nwMonths = Array.from(new Set([...holdingsHistory.map(h=>h.month), ...debtHistory.map(h=>h.month)].filter(Boolean)))
+    .sort((a,b)=>monthRank(a)-monthRank(b));
+  const nwPortfolioVals = totalsAtMonths(holdingsHistory, "code", "value", nwMonths);
+  const nwDebtVals = totalsAtMonths(debtHistory, "name", "balance", nwMonths);
+  const history = nwMonths.length>=2
+    ? nwMonths.map((m,i)=>({ m:m.replace(" 2026",""), portfolio:nwPortfolioVals[i], debt:nwDebtVals[i], nw:nwPortfolioVals[i]-nwDebtVals[i] }))
+    : FB_HIST;
   const cashFlowFallback = FB_CF;
   const [spendingMonths,setSpendingMonths]=useState(FB_SP);
   const [dataSource,setDataSource]=useState("fallback");
@@ -631,21 +669,41 @@ export default function App(){
   // Expense logging is a standing tab page (spendSubTab==="logexpense") that doubles as the
   // edit screen for an existing transaction — openEditExpense prefills it from a tapped row
   // and submitExpenseForm updates that row by id instead of inserting a new one.
+  const [expenseDupeWarning,setExpenseDupeWarning]=useState(null); // matching raw txn row, or null
   function openAddExpense(){
     setExpenseFormMode("add");
     setExpenseForm({id:null,category:"Food",amount:"",date:new Date().toISOString().split("T")[0],note:""});
     setExpenseFormStatus(null);
+    setExpenseDupeWarning(null);
     setTab("spending"); setSpendSubTab("logexpense");
   }
   function openEditExpense(t){
     setExpenseFormMode("edit");
     setExpenseForm({id:t.id,category:t.cat,amount:String(t.amount),date:t.date,note:t.desc||""});
     setExpenseFormStatus(null);
+    setExpenseDupeWarning(null);
     setTab("spending"); setSpendSubTab("logexpense");
   }
-  async function submitExpenseForm(){
+  async function submitExpenseForm(force){
     const amount = parseFloat(expenseForm.amount);
     if(!amount||amount<=0||!expenseForm.date) return;
+    // Duplicate guard — same category, near-identical amount, within 5 days of each other.
+    // Catches accidental re-logs (like the Japan Fund one that slipped through before edit
+    // existed) before they land in the database, instead of after.
+    if(!force){
+      const dayMs = 86400000;
+      const targetDate = new Date(expenseForm.date+"T00:00:00").getTime();
+      const dupe = (spendRaw?.transactions||[]).find(t=>{
+        if(expenseFormMode==="edit" && t.id===expenseForm.id) return false;
+        if(cleanCat(t.category)!==expenseForm.category) return false;
+        const amtDiff = Math.abs(parseFloat(t.amount)-amount);
+        if(amtDiff>Math.max(1,amount*0.01)) return false;
+        const td = new Date(t.date+"T00:00:00").getTime();
+        return Math.abs(td-targetDate)<=5*dayMs;
+      });
+      if(dupe){ setExpenseDupeWarning(dupe); return; }
+    }
+    setExpenseDupeWarning(null);
     setExpenseFormStatus("saving");
     const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
     const d = new Date(expenseForm.date+"T00:00:00");
@@ -687,6 +745,32 @@ export default function App(){
       setExpenseFormStatus("error");
       setTimeout(()=>setExpenseFormStatus(null),3000);
     }
+  }
+
+  // Exports everything she's logged — full transaction history (all months, not just the one
+  // being viewed) plus every Fund and Debt monthly snapshot — as one combined CSV, so there's
+  // always a copy outside Supabase for taxes, an annual review, or just peace of mind.
+  function exportAllData(){
+    const parts = [];
+    parts.push("TRANSACTIONS");
+    parts.push(toCSV((spendRaw?.transactions||[]).slice().sort((a,b)=>a.date.localeCompare(b.date)), [
+      {label:"Date",key:"date"}, {label:"Month",key:"month"}, {label:"Category",key:"category"},
+      {label:"Description",key:"description"}, {label:"Amount",key:"amount"}, {label:"Method",key:"method"},
+    ]));
+    parts.push("");
+    parts.push("FUND / HOLDINGS HISTORY");
+    parts.push(toCSV(holdingsHistory.slice().sort((a,b)=>monthRank(a.month)-monthRank(b.month)), [
+      {label:"Month",key:"month"}, {label:"Code",key:"code"}, {label:"Name",key:"name"}, {label:"Type",key:"type"},
+      {label:"Class",key:"cls"}, {label:"NAV",key:"nav"}, {label:"Units",key:"units"}, {label:"Cost",key:"cost"}, {label:"Value",key:"value"},
+    ]));
+    parts.push("");
+    parts.push("DEBT HISTORY");
+    parts.push(toCSV(debtHistory.slice().sort((a,b)=>monthRank(a.month)-monthRank(b.month)), [
+      {label:"Month",key:"month"}, {label:"Name",key:"name"}, {label:"Balance",key:"balance"}, {label:"Rate %",key:"rate"},
+      {label:"Monthly Payment",key:"monthly"}, {label:"Interest",key:"interest"}, {label:"Principal",key:"principal"}, {label:"Years Left",key:"years"},
+    ]));
+    const dateStamp = new Date().toISOString().split("T")[0];
+    downloadTextFile(`gift-finance-export-${dateStamp}.csv`, parts.join("\n"));
   }
 
   const fetchAll=useCallback(async(silent=false)=>{
@@ -2023,12 +2107,22 @@ export default function App(){
                 <Counter to={NW} dur={1100}/>
               </div>
 
-              {/* Daily change pill */}
-              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:16}}>
+              {/* Daily change + month-over-month pills */}
+              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:16,flexWrap:"wrap"}}>
                 <div style={{display:"inline-flex",alignItems:"center",gap:4,fontSize:11,fontWeight:700,color:WDAILY>=0?TH.green:TH.red,background:WDAILY>=0?"rgba(74,222,128,0.1)":"rgba(248,113,113,0.1)",border:`1px solid ${WDAILY>=0?"rgba(74,222,128,0.2)":"rgba(248,113,113,0.2)"}`,padding:"3px 9px",borderRadius:999}}>
                   {WDAILY>=0?<TrendingUp size={11}/>:<TrendingDown size={11}/>}
                   {sgn(WDAILY)}{fd(WDAILY)}% last update
                 </div>
+                {nwMonths.length>=2&&(()=>{
+                  const last=history[history.length-1], prev=history[history.length-2];
+                  const momPct = prev.nw?((last.nw-prev.nw)/Math.abs(prev.nw)*100):0;
+                  return(
+                    <div style={{display:"inline-flex",alignItems:"center",gap:4,fontSize:11,fontWeight:700,color:momPct>=0?TH.green:TH.red,background:momPct>=0?"rgba(74,222,128,0.1)":"rgba(248,113,113,0.1)",border:`1px solid ${momPct>=0?"rgba(74,222,128,0.2)":"rgba(248,113,113,0.2)"}`,padding:"3px 9px",borderRadius:999}}>
+                      {momPct>=0?<TrendingUp size={11}/>:<TrendingDown size={11}/>}
+                      {sgn(momPct)}{fd(momPct)}% vs last month
+                    </div>
+                  );
+                })()}
                 <span style={{fontSize:10,color:"rgba(255,255,255,0.55)"}}>Portfolio {fmt(TOTAL)} − Debt {fmt(DEBT)}</span>
               </div>
 
@@ -2250,6 +2344,14 @@ export default function App(){
                 </div>
                 <ChevronRight size={16} color={TH.dim}/>
               </div>
+              <div onClick={()=>setInvestSubTab("growth")} style={{...cardStyle,cursor:"pointer",display:"flex",alignItems:"center",gap:12}}>
+                <div style={{width:44,height:44,borderRadius:12,background:"rgba(74,222,128,0.12)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>📈</div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:13,fontWeight:700,color:TH.text}}>Growth</div>
+                  <div style={{fontSize:11,color:TH.muted,marginTop:2}}>{(()=>{const c=holdings.reduce((s,h)=>s+h.cost,0);const g=TOTAL-c;return c?`${sgn(g/c*100)}${fd(g/c*100,1)}% unrealized`:"Value vs cost over time";})()}</div>
+                </div>
+                <ChevronRight size={16} color={TH.dim}/>
+              </div>
             </>
           ):(
           <>
@@ -2388,6 +2490,57 @@ export default function App(){
             })}
           </div>
           </>)}
+
+          {investSubTab==="growth"&&(()=>{
+            // Portfolio-wide value vs cost — every fund combined, isolated from debt (unlike
+            // Net Worth Trajectory). Shows what you asked for: how much you've invested vs
+            // what it's worth now, over time.
+            const fundMonths = Array.from(new Set(holdingsHistory.map(h=>h.month).filter(Boolean))).sort((a,b)=>monthRank(a)-monthRank(b));
+            const fundValueVals = totalsAtMonths(holdingsHistory, "code", "value", fundMonths);
+            const fundCostVals = totalsAtMonths(holdingsHistory, "code", "cost", fundMonths);
+            const growthData = fundMonths.map((m,i)=>({ m:m.replace(" 2026",""), value:fundValueVals[i], cost:fundCostVals[i] }));
+            const totalCost = holdings.reduce((s,h)=>s+h.cost,0);
+            const totalGain = TOTAL-totalCost;
+            const gainPct = totalCost?(totalGain/totalCost*100):0;
+            return(
+            <>
+            <div style={cardStyle}>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:14}}>
+                {[
+                  {l:"Invested",v:totalCost,c:TH.text2},
+                  {l:"Value Now",v:TOTAL,c:TH.text},
+                  {l:"Unrealized Gain",v:totalGain,c:clr(totalGain,TH),pct:gainPct},
+                ].map((s,i)=>(
+                  <div key={i} style={{textAlign:"center"}}>
+                    <div style={{fontSize:9,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em",marginBottom:4}}>{s.l}</div>
+                    <div style={{fontSize:13,fontWeight:800,color:s.c,fontFamily:TH.mono}}>{sgn(s.v)}{fmt(s.v)}</div>
+                    {s.pct!=null&&<div style={{fontSize:9,fontWeight:700,color:s.c,marginTop:1}}>{sgn(s.pct)}{fd(s.pct,1)}%</div>}
+                  </div>
+                ))}
+              </div>
+              <div style={{fontSize:9,fontWeight:700,color:TH.muted,marginBottom:8,textTransform:"uppercase",letterSpacing:".05em"}}>Portfolio Value vs Cost</div>
+              {growthData.length>=2?(
+                <ResponsiveContainer width="100%" height={140}>
+                  <AreaChart data={growthData} margin={{top:2,right:2,left:0,bottom:0}}>
+                    <defs>
+                      <linearGradient id="portGrowthGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#4ADE80" stopOpacity={0.25}/>
+                        <stop offset="95%" stopColor="#4ADE80" stopOpacity={0}/>
+                      </linearGradient>
+                    </defs>
+                    <XAxis dataKey="m" tick={{fontSize:9,fill:TH.muted}} axisLine={false} tickLine={false}/>
+                    <Tooltip formatter={(v,k)=>[fmt(v),k==="value"?"Value":"Cost"]} contentStyle={{background:darkMode?"#0D1117":"#fff",border:`1px solid ${TH.border}`,borderRadius:10,fontSize:10}}/>
+                    <Area type="monotone" dataKey="cost" stroke={TH.muted} strokeWidth={1.5} strokeDasharray="3 3" fill="none" dot={{fill:TH.muted,r:2}}/>
+                    <Area type="monotone" dataKey="value" stroke="#4ADE80" strokeWidth={2} fill="url(#portGrowthGrad)" dot={{fill:"#4ADE80",r:3}}/>
+                  </AreaChart>
+                </ResponsiveContainer>
+              ):(
+                <div style={{fontSize:10,color:TH.muted,fontStyle:"italic",textAlign:"center",padding:"20px 0"}}>Log at least 2 months of fund updates to see this trend.</div>
+              )}
+            </div>
+            </>
+            );
+          })()}
 
           {investSubTab==="logfund"&&(()=>{
             const nav=parseFloat(fundForm.nav)||0, units=parseFloat(fundForm.units)||0, cost=parseFloat(fundForm.cost)||0;
@@ -2576,6 +2729,21 @@ export default function App(){
             ))}
           </div>
 
+          {selMonth>0&&(()=>{
+            const prevM = spendingMonths[selMonth-1];
+            if(!prevM||!prevM.spent) return null;
+            const delta = CM.spent-prevM.spent;
+            const deltaPct = (delta/prevM.spent)*100;
+            return(
+              <div style={{display:"flex",alignItems:"center",gap:6,padding:"8px 12px",background:`${delta<=0?TH.green:TH.red}0C`,borderRadius:11,border:`1px solid ${delta<=0?TH.green:TH.red}25`}}>
+                {delta<=0?<TrendingDown size={12} color={TH.green}/>:<TrendingUp size={12} color={TH.red}/>}
+                <span style={{fontSize:10,color:TH.text2}}>
+                  <span style={{fontWeight:700,color:delta<=0?TH.green:TH.red}}>{sgn(deltaPct)}{fd(deltaPct,0)}%</span> vs {prevM.m} ({sgn(delta)}{fmt(delta)})
+                </span>
+              </div>
+            );
+          })()}
+
           <div style={cardStyle}>
             <div style={{display:"flex",justifyContent:"space-between",marginBottom:7}}>
               <span style={{fontSize:11,fontWeight:700}}>Budget Usage</span>
@@ -2669,6 +2837,51 @@ export default function App(){
               </>
             }
           </div>
+
+          {/* Category Budgets — target per category is the average of that category's spend in
+              prior months (before whichever month you're viewing), so it adapts as your habits
+              do instead of needing you to set numbers by hand. Needs at least 1 prior month with
+              that category logged before a target shows. */}
+          {(()=>{
+            const priorMonths = spendingMonths.slice(0, selMonth);
+            const budgetCats = Array.from(new Set(spendingMonths.flatMap(m=>Object.keys(m.cats||{}))))
+              .filter(c=>!SAVINGS_CATS.includes(c));
+            const rows = budgetCats.map(c=>{
+              const priorVals = priorMonths.map(m=>m.cats?.[c]).filter(v=>v>0);
+              const avg = priorVals.length ? priorVals.reduce((s,v)=>s+v,0)/priorVals.length : null;
+              const spent = CM.cats?.[c]||0;
+              return { cat:c, avg, spent };
+            }).filter(r=>r.spent>0||r.avg!=null).sort((a,b)=>(b.avg||b.spent)-(a.avg||a.spent)).slice(0,10);
+            if(!rows.length) return null;
+            return(
+              <div style={cardStyle}>
+                <div style={{fontSize:12,fontWeight:700,marginBottom:2}}>Category Budgets</div>
+                <div style={{fontSize:9,color:TH.muted,marginBottom:12}}>Target = your average spend in each category over prior months</div>
+                {rows.map((r,i)=>{
+                  const pct = r.avg?Math.min((r.spent/r.avg)*100,999):null;
+                  const over = r.avg!=null && r.spent>r.avg;
+                  return(
+                    <div key={i} style={{marginBottom:i<rows.length-1?11:0}}>
+                      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",fontSize:11,marginBottom:4}}>
+                        <div style={{display:"flex",alignItems:"center",gap:7}}><div style={{width:7,height:7,borderRadius:"50%",background:CAT_COLOR[r.cat]||TH.accent,flexShrink:0}}/><span style={{fontWeight:600,color:TH.text2}}>{r.cat}</span></div>
+                        <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                          <span style={{fontWeight:700,fontFamily:TH.mono,color:over?TH.red:TH.text}}>{fmt(r.spent)}</span>
+                          <span style={{fontSize:9,color:TH.muted}}>/ {r.avg!=null?fmt(Math.round(r.avg)):"—"}</span>
+                        </div>
+                      </div>
+                      {r.avg!=null?(
+                        <div style={{height:4,background:darkMode?"rgba(255,255,255,0.06)":"rgba(0,0,0,0.06)",borderRadius:999,overflow:"hidden"}}>
+                          <div style={{height:"100%",width:`${Math.min(pct,100)}%`,background:over?"linear-gradient(90deg,#F87171,#DC2626)":CAT_COLOR[r.cat]||TH.accent,borderRadius:999,transition:"width 1s ease"}}/>
+                        </div>
+                      ):(
+                        <div style={{fontSize:9,color:TH.muted,fontStyle:"italic"}}>Not enough history yet — log this category in another month to set a target.</div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
           </>)}
 
           {spendSubTab==="transactions"&&(<>
@@ -2812,12 +3025,23 @@ export default function App(){
               </div>
             </div>
 
+            {expenseDupeWarning&&(
+              <div style={{background:"rgba(251,191,36,0.08)",border:"1px solid rgba(251,191,36,0.25)",borderRadius:12,padding:"10px 12px",marginBottom:10}}>
+                <div style={{fontSize:11,fontWeight:700,color:"#FBBF24",marginBottom:3}}>Possible duplicate</div>
+                <div style={{fontSize:10,color:TH.text2,marginBottom:9}}>You already logged {fmt(parseFloat(expenseDupeWarning.amount))} in {cleanCat(expenseDupeWarning.category)} on {expenseDupeWarning.date}. Save this one too?</div>
+                <div style={{display:"flex",gap:8}}>
+                  <button onClick={()=>submitExpenseForm(true)} style={{flex:1,padding:9,borderRadius:10,fontWeight:700,fontSize:11,background:"#FBBF24",border:"none",color:"#1A1500",cursor:"pointer"}}>Save Anyway</button>
+                  <button onClick={()=>setExpenseDupeWarning(null)} style={{flex:1,padding:9,borderRadius:10,fontWeight:700,fontSize:11,background:"transparent",border:`1px solid ${TH.border}`,color:TH.muted,cursor:"pointer"}}>Cancel</button>
+                </div>
+              </div>
+            )}
+
             {expenseFormStatus==="saving"&&<div style={{textAlign:"center",fontSize:12,color:TH.muted,marginBottom:10}}>Saving…</div>}
             {expenseFormStatus==="success"&&<div style={{textAlign:"center",fontSize:12,color:"#4ADE80",marginBottom:10}}>{expenseFormMode==="edit"?"✓ Updated!":"✓ Expense added!"}</div>}
             {expenseFormStatus==="error"&&<div style={{textAlign:"center",fontSize:12,color:"#F87171",marginBottom:10}}>Failed to save — check connection</div>}
 
             <button
-              onClick={submitExpenseForm}
+              onClick={()=>submitExpenseForm()}
               disabled={!expenseForm.amount||expenseFormStatus==="saving"}
               style={{width:"100%",padding:14,borderRadius:12,fontWeight:700,fontSize:13,background:expenseForm.amount?`linear-gradient(135deg,${CAT_COLOR[expenseForm.category]||"#6366F1"},#38BDF8)`:"rgba(255,255,255,0.06)",border:"none",color:expenseForm.amount?"white":"#4B5563",cursor:expenseForm.amount?"pointer":"default"}}>
               {expenseFormMode==="edit"?"Save Changes":"Save Expense"}
@@ -2858,21 +3082,9 @@ export default function App(){
           const milestoneYear = (key)=>{ const hit=projData.find(p=>p[key]>=5000000); return hit?hit.year:null; };
           const pctToMilestone = Math.min(100, currentPF/5000000*100);
 
-          // ── Net worth history — real once she's logged 2+ months of Fund/Debt history:
-          // every fund's value minus every debt's balance, forward-filled at each month that
-          // either was updated in. Falls back to a few placeholder points until there's enough
-          // real history to chart, so the chart never just goes blank.
-          const nwMonths = Array.from(new Set([...holdingsHistory.map(h=>h.month), ...debtHistory.map(h=>h.month)].filter(Boolean)))
-            .sort((a,b)=>monthRank(a)-monthRank(b));
-          const nwPortfolioVals = totalsAtMonths(holdingsHistory, "code", "value", nwMonths);
-          const nwDebtVals = totalsAtMonths(debtHistory, "name", "balance", nwMonths);
-          const nwHistory = nwMonths.length>=2
-            ? nwMonths.map((m,i)=>({ m:m.replace(" 2026",""), portfolio:nwPortfolioVals[i], debt:nwDebtVals[i], nw:nwPortfolioVals[i]-nwDebtVals[i] }))
-            : [
-                {m:"May",portfolio:1534749,debt:796385,nw:738364},
-                {m:"Jun",portfolio:1630948,debt:796385,nw:834563},
-                {m:"Jul",portfolio:1640385,debt:796385,nw:900000},
-              ];
+          // Net worth history — computed once at the top of the component (shared with the
+          // Overview sparkline + MoM delta) so this chart and that one never drift apart.
+          const nwHistory = history;
 
           // ── Spending trend data ──
           const spendTrend = spendingMonths.map(sm=>{
@@ -3727,7 +3939,7 @@ export default function App(){
       )}
 
       {/* OVERLAYS */}
-      <ProfilePanel open={profOpen} onClose={()=>setProfOpen(false)} photo={profilePhoto} onPhotoChange={p=>{setProfilePhoto(p);try{localStorage.setItem('gf_photo',p);}catch{}}} name="Gift" darkMode={darkMode} setDarkMode={setDarkMode}/>
+      <ProfilePanel open={profOpen} onClose={()=>setProfOpen(false)} photo={profilePhoto} onPhotoChange={p=>{setProfilePhoto(p);try{localStorage.setItem('gf_photo',p);}catch{}}} name="Gift" darkMode={darkMode} setDarkMode={setDarkMode} onExport={exportAllData}/>
       <FundPanel fund={selFund} history={selFund?holdingsHistory.filter(h=>h.code===selFund.code):[]} onClose={()=>setSelFund(null)} onEdit={openEditFund} darkMode={darkMode}/>
       <AIPanel open={aiOpen} onClose={()=>setAiOpen(false)} holdings={holdings} debts={debts} spendingMonths={spendingMonths}/>
       <DebugPanel open={debugOpen} onClose={()=>setDebugOpen(false)} portRaw={portRaw} spendRaw={spendRaw} portErr={portErr} spendErr={spendErr}/>
