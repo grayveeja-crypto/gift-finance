@@ -41,7 +41,7 @@ const FB_HIST = [
   { m:"Jan", portfolio:1280000, debt:820000 }, { m:"Feb", portfolio:1310000, debt:818000 },
   { m:"Mar", portfolio:1350000, debt:815000 }, { m:"Apr", portfolio:1360000, debt:812792 },
   { m:"May", portfolio:1537025, debt:812792 },
-];
+].map(h=>({ ...h, nw:h.portfolio-h.debt })); // pre-computed so any accidental fallback render never shows NaN
 const FB_CF = { date:"2026-05", income:75400, expenses:0, travelFund:15000, emergencyFund:8000, cumBalance:8000, investments:20000, unallocatedPct:53.58 };
 const FB_SP = [
   { m:"Apr 2026", budget:70400, income:73400, spent:44543, transactions:[
@@ -2016,6 +2016,7 @@ export default function App(){
                 <div style={dcStyle}>
                   <div style={{fontSize:13,fontWeight:700,marginBottom:4}}>Net Worth Trajectory</div>
                   <div style={{fontSize:10,color:TH.muted,marginBottom:12}}>Portfolio minus total debt</div>
+                  {nwMonths.length>=2?(<>
                   <ResponsiveContainer width="100%" height={160}>
                     <AreaChart data={nwHistory} margin={{top:4,right:4,left:0,bottom:0}}>
                       <defs><linearGradient id="nwGD" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#4ADE80" stopOpacity={0.3}/><stop offset="95%" stopColor="#4ADE80" stopOpacity={0}/></linearGradient></defs>
@@ -2033,6 +2034,13 @@ export default function App(){
                       </div>
                     ))}
                   </div>
+                  </>):(
+                    <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:10,padding:"24px 10px"}}>
+                      <div style={{width:44,height:44,borderRadius:12,background:"rgba(74,222,128,0.1)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20}}>📈</div>
+                      <div style={{fontSize:11,color:TH.text2,textAlign:"center",fontWeight:600}}>Not enough history yet</div>
+                      <div style={{fontSize:10,color:TH.muted,textAlign:"center",maxWidth:260}}>Net worth needs at least 2 months of logged Fund and Debt updates before a trend can be charted.</div>
+                    </div>
+                  )}
                 </div>
                 {/* Savings Rate */}
                 <div style={dcStyle}>
@@ -3311,6 +3319,16 @@ export default function App(){
                 </div>
                 <ChevronRight size={16} color={TH.dim}/>
               </div>
+              <div onClick={()=>setTab("wealth")} style={{...cardStyle,cursor:"pointer",display:"flex",alignItems:"center",gap:12,background:"linear-gradient(135deg,rgba(99,102,241,0.12),rgba(56,189,248,0.07))",border:"1px solid rgba(99,102,241,0.25)"}}>
+                <div style={{width:44,height:44,borderRadius:12,background:"linear-gradient(135deg,#6366F1,#38BDF8)",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                  <Sparkles size={20} color="white"/>
+                </div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:13,fontWeight:700,color:TH.text}}>Wealth Analysis ✦</div>
+                  <div style={{fontSize:11,color:TH.muted,marginTop:2}}>{wealthData?`Score ${wealthData.score} · ${wealthData.scoreLabel.split(" · ")[0]}`:"Run a full analysis of your finances"}</div>
+                </div>
+                <ChevronRight size={16} color={TH.dim}/>
+              </div>
             </>
           ):(
           <>
@@ -3786,6 +3804,7 @@ export default function App(){
           <div style={cardStyle}>
             <div style={{fontSize:12,fontWeight:700,marginBottom:4}}>Net Worth Trajectory</div>
             <div style={{fontSize:10,color:TH.muted,marginBottom:12}}>Portfolio minus total debt</div>
+            {nwMonths.length>=2?(<>
             <ResponsiveContainer width="100%" height={140}>
               <AreaChart data={nwHistory} margin={{top:4,right:4,left:0,bottom:0}}>
                 <defs>
@@ -3808,6 +3827,13 @@ export default function App(){
                 </div>
               ))}
             </div>
+            </>):(
+              <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:9,padding:"18px 10px"}}>
+                <div style={{width:40,height:40,borderRadius:11,background:"rgba(74,222,128,0.1)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>📈</div>
+                <div style={{fontSize:11,color:TH.text2,textAlign:"center",fontWeight:600}}>Not enough history yet</div>
+                <div style={{fontSize:10,color:TH.muted,textAlign:"center",maxWidth:220}}>Net worth needs at least 2 months of logged Fund and Debt updates before a trend can be charted. Keep logging monthly and this fills in on its own.</div>
+              </div>
+            )}
           </div>
 
           <div style={cardStyle}>
@@ -3893,6 +3919,10 @@ export default function App(){
 
         {/* ══ WEALTH ADVISOR ══ */}
         {tab==="wealth"&&(<div style={{display:"flex",flexDirection:"column",gap:12}}>
+
+          <button onClick={()=>setTab("planning")} style={{display:"flex",alignItems:"center",gap:4,background:"transparent",border:"none",color:TH.muted,fontSize:12,fontWeight:600,cursor:"pointer",padding:"2px 0",marginBottom:-4,alignSelf:"flex-start"}}>
+            <ChevronRight size={14} style={{transform:"rotate(180deg)"}}/> Plan
+          </button>
 
           {/* Run Analysis card */}
           <div style={{borderRadius:20,background:"linear-gradient(135deg,rgba(99,102,241,0.15),rgba(56,189,248,0.08))",border:"1px solid rgba(99,102,241,0.3)",padding:"18px 16px"}}>
