@@ -164,7 +164,7 @@ function buildSpendingMonths(spendingRows, txnRows){
   (spendingRows||[]).forEach(s=>{ byMonth[s.month] = { m:s.month, budget:pn(s.budget), income:pn(s.income), grossIncome:pn(s.gross_income)||null, pvdEmployeePct:pn(s.pvd_pct)||null, pvdEmployerPct:pn(s.pvd_employer_pct)||null, transactions:[], cats:{} }; });
   (txnRows||[]).forEach(t=>{
     if(!byMonth[t.month]) byMonth[t.month] = { m:t.month, budget:70400, income:75400, grossIncome:null, pvdEmployeePct:null, pvdEmployerPct:null, transactions:[], cats:{} };
-    const txn = { date:t.date, day:"", cat:cleanCat(t.category), desc:t.description||"", amount:pn(t.amount), method:t.method||"" };
+    const txn = { id:t.id, date:t.date, day:"", cat:cleanCat(t.category), desc:t.description||"", amount:pn(t.amount), method:t.method||"" };
     byMonth[t.month].transactions.push(txn);
     byMonth[t.month].cats[txn.cat] = (byMonth[t.month].cats[txn.cat]||0) + txn.amount;
   });
@@ -470,7 +470,8 @@ export default function App(){
   const [wealthError,setWealthError]=useState(null);
   const [wealthLastRun,setWealthLastRun]=useState(null);
   const [quickMenu,setQuickMenu]=useState(false); const [aiOpen,setAiOpen]=useState(false);
-  const [expenseForm,setExpenseForm]=useState({category:"Food",amount:"",date:new Date().toISOString().split("T")[0],note:""});
+  const [expenseForm,setExpenseForm]=useState({id:null,category:"Food",amount:"",date:new Date().toISOString().split("T")[0],note:""});
+  const [expenseFormMode,setExpenseFormMode]=useState("add"); // "add" | "edit"
   const [expenseFormStatus,setExpenseFormStatus]=useState(null); // null | "saving" | "success" | "error"
 
   // ─── FUND MANAGER (add / update holdings) ───────────────────────────────────
@@ -627,6 +628,21 @@ export default function App(){
   const [search,setSearch]=useState(""); const [fCls,setFCls]=useState("All");
   const [expandDebt,setExpandDebt]=useState(null); const [selMonth,setSelMonth]=useState(0);
 
+  // Expense logging is a standing tab page (spendSubTab==="logexpense") that doubles as the
+  // edit screen for an existing transaction — openEditExpense prefills it from a tapped row
+  // and submitExpenseForm updates that row by id instead of inserting a new one.
+  function openAddExpense(){
+    setExpenseFormMode("add");
+    setExpenseForm({id:null,category:"Food",amount:"",date:new Date().toISOString().split("T")[0],note:""});
+    setExpenseFormStatus(null);
+    setTab("spending"); setSpendSubTab("logexpense");
+  }
+  function openEditExpense(t){
+    setExpenseFormMode("edit");
+    setExpenseForm({id:t.id,category:t.cat,amount:String(t.amount),date:t.date,note:t.desc||""});
+    setExpenseFormStatus(null);
+    setTab("spending"); setSpendSubTab("logexpense");
+  }
   async function submitExpenseForm(){
     const amount = parseFloat(expenseForm.amount);
     if(!amount||amount<=0||!expenseForm.date) return;
@@ -634,15 +650,38 @@ export default function App(){
     const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
     const d = new Date(expenseForm.date+"T00:00:00");
     const month = `${months[d.getMonth()]} ${d.getFullYear()}`;
+    const row = { month, date: expenseForm.date, category: expenseForm.category, description: expenseForm.note, amount, method: "" };
     try{
-      const { error } = await supabase.from("transactions").insert({
-        month, date: expenseForm.date, category: expenseForm.category,
-        description: expenseForm.note, amount, method: "",
-      });
+      const { error } = expenseFormMode==="edit"
+        ? await supabase.from("transactions").update(row).eq("id", expenseForm.id)
+        : await supabase.from("transactions").insert(row);
       if(error) throw error;
       setExpenseFormStatus("success");
-      setExpenseForm({category:"Food",amount:"",date:new Date().toISOString().split("T")[0],note:""});
-      setTimeout(()=>{setExpenseFormStatus(null); setExpenseFormOpen(false); setSpendSubTab(null);},1200);
+      setTimeout(()=>{
+        setExpenseFormStatus(null);
+        setExpenseFormMode("add");
+        setExpenseForm({id:null,category:"Food",amount:"",date:new Date().toISOString().split("T")[0],note:""});
+        setSpendSubTab(null);
+      },1200);
+      fetchAll(true);
+    }catch(e){
+      setExpenseFormStatus("error");
+      setTimeout(()=>setExpenseFormStatus(null),3000);
+    }
+  }
+  async function deleteExpense(){
+    if(!expenseForm.id) return;
+    setExpenseFormStatus("saving");
+    try{
+      const { error } = await supabase.from("transactions").delete().eq("id", expenseForm.id);
+      if(error) throw error;
+      setExpenseFormStatus("success");
+      setTimeout(()=>{
+        setExpenseFormStatus(null);
+        setExpenseFormMode("add");
+        setExpenseForm({id:null,category:"Food",amount:"",date:new Date().toISOString().split("T")[0],note:""});
+        setSpendSubTab(null);
+      },900);
       fetchAll(true);
     }catch(e){
       setExpenseFormStatus("error");
@@ -2507,7 +2546,7 @@ export default function App(){
                 </div>
                 <ChevronRight size={16} color={TH.dim}/>
               </div>
-              <div onClick={()=>{setExpenseFormStatus(null);setSpendSubTab("logexpense");}} style={{...cardStyle,cursor:"pointer",display:"flex",alignItems:"center",gap:12,border:`1px solid ${TH.accent}30`}}>
+              <div onClick={openAddExpense} style={{...cardStyle,cursor:"pointer",display:"flex",alignItems:"center",gap:12,border:`1px solid ${TH.accent}30`}}>
                 <div style={{width:44,height:44,borderRadius:12,background:"linear-gradient(135deg,rgba(99,102,241,0.18),rgba(56,189,248,0.18))",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>📝</div>
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{fontSize:13,fontWeight:700,color:TH.text}}>Log Expense</div>
@@ -2636,7 +2675,7 @@ export default function App(){
           {TXNS.length===0?(
             <div style={{...cardStyle,textAlign:"center",padding:"24px 12px"}}>
               <div style={{fontSize:11,color:TH.muted,marginBottom:12}}>No transactions logged this month yet.</div>
-              <button onClick={()=>{setExpenseFormStatus(null);setSpendSubTab("logexpense");}}
+              <button onClick={openAddExpense}
                 style={{display:"inline-flex",alignItems:"center",justifyContent:"center",gap:8,padding:"10px 18px",borderRadius:14,border:"none",background:"linear-gradient(135deg,#6366F1,#38BDF8)",color:"white",fontSize:12,fontWeight:700,cursor:"pointer"}}>
                 <Plus size={14}/> Log Expense
               </button>
@@ -2647,7 +2686,7 @@ export default function App(){
                 <div style={{fontSize:12,fontWeight:700}}>Transactions</div>
                 <div style={{display:"flex",alignItems:"center",gap:8}}>
                   <span style={{fontSize:9,color:TH.muted}}>{TXNS.length} entries</span>
-                  <button onClick={()=>{setExpenseFormStatus(null);setSpendSubTab("logexpense");}}
+                  <button onClick={openAddExpense}
                     style={{display:"flex",alignItems:"center",gap:3,padding:"4px 9px",borderRadius:999,border:`1px solid ${TH.accent}30`,background:`${TH.accent}12`,color:TH.accent,fontSize:9,fontWeight:700,cursor:"pointer"}}>
                     <Plus size={10}/> Add
                   </button>
@@ -2661,10 +2700,10 @@ export default function App(){
                 const multi=g.txns.length>1;
                 return(
                   <div key={gi} style={{marginBottom:5}}>
-                    <div onClick={()=>{if(!multi)return;const el=document.getElementById(`tg${gi}`);if(el)el.style.display=el.style.display==="none"?"flex":"none";}}
+                    <div onClick={()=>{if(multi){const el=document.getElementById(`tg${gi}`);if(el)el.style.display=el.style.display==="none"?"flex":"none";}else{openEditExpense(g.txns[0]);}}}
                       style={{display:"flex",alignItems:"center",gap:9,padding:"9px 8px",borderRadius:12,
                         background:isSav?"rgba(74,222,128,0.05)":isNot?"rgba(251,191,36,0.04)":"transparent",
-                        border:`1px solid ${isSav?"rgba(74,222,128,0.15)":isNot?"rgba(251,191,36,0.15)":TH.border}`,cursor:multi?"pointer":"default"}}>
+                        border:`1px solid ${isSav?"rgba(74,222,128,0.15)":isNot?"rgba(251,191,36,0.15)":TH.border}`,cursor:"pointer"}}>
                       <div style={{width:33,height:33,borderRadius:10,background:isSav?"rgba(74,222,128,0.12)":isFix?"rgba(255,255,255,0.05)":`${CAT_COLOR[g.cat]||TH.accent}15`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:15,flexShrink:0}}>{CAT_ICON[g.cat]||"💳"}</div>
                       <div style={{flex:1,minWidth:0}}>
                         <div style={{display:"flex",alignItems:"center",gap:5,flexWrap:"wrap"}}>
@@ -2678,13 +2717,13 @@ export default function App(){
                       </div>
                       <div style={{textAlign:"right",flexShrink:0}}>
                         <div style={{fontSize:12,fontWeight:800,fontFamily:TH.mono,color:amtC}}>{isSav?"+":"-"}{fmt(g.total)}</div>
-                        {multi&&<div style={{fontSize:8,color:TH.dim,marginTop:1}}>tap to expand</div>}
+                        <div style={{fontSize:8,color:TH.dim,marginTop:1}}>{multi?"tap to expand":"tap to edit"}</div>
                       </div>
                     </div>
                     {multi&&(
                       <div id={`tg${gi}`} style={{display:"none",flexDirection:"column",paddingLeft:12,marginTop:3,gap:2}}>
                         {g.txns.map((t,ti)=>(
-                          <div key={ti} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 9px",borderRadius:9,background:TH.surf,border:`1px solid ${TH.border}`}}>
+                          <div key={ti} onClick={()=>openEditExpense(t)} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 9px",borderRadius:9,background:TH.surf,border:`1px solid ${TH.border}`,cursor:"pointer"}}>
                             <div><div style={{fontSize:11,fontWeight:500,color:TH.text2}}>{t.desc||t.cat}</div><div style={{fontSize:9,color:TH.muted}}>{t.date}{t.method&&` · ${t.method}`}</div></div>
                             <div style={{fontSize:11,fontWeight:700,fontFamily:TH.mono,color:amtC}}>{isSav?"+":"-"}{fmt(t.amount)}</div>
                           </div>
@@ -2713,6 +2752,12 @@ export default function App(){
 
           {spendSubTab==="logexpense"&&(<>
           <div style={cardStyle}>
+            {expenseFormMode==="edit"&&(
+              <div style={{marginBottom:14}}>
+                <div style={{fontSize:15,fontWeight:800,color:TH.text}}>Edit Transaction</div>
+                <div style={{fontSize:11,color:TH.muted}}>Fix the amount, category, date or note — updates this entry in place</div>
+              </div>
+            )}
             {/* Hero amount */}
             <div style={{background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:16,padding:"16px 18px",marginBottom:18,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
               <span style={{fontSize:22,fontWeight:700,color:TH.muted}}>฿</span>
@@ -2768,15 +2813,23 @@ export default function App(){
             </div>
 
             {expenseFormStatus==="saving"&&<div style={{textAlign:"center",fontSize:12,color:TH.muted,marginBottom:10}}>Saving…</div>}
-            {expenseFormStatus==="success"&&<div style={{textAlign:"center",fontSize:12,color:"#4ADE80",marginBottom:10}}>✓ Expense added!</div>}
+            {expenseFormStatus==="success"&&<div style={{textAlign:"center",fontSize:12,color:"#4ADE80",marginBottom:10}}>{expenseFormMode==="edit"?"✓ Updated!":"✓ Expense added!"}</div>}
             {expenseFormStatus==="error"&&<div style={{textAlign:"center",fontSize:12,color:"#F87171",marginBottom:10}}>Failed to save — check connection</div>}
 
             <button
               onClick={submitExpenseForm}
               disabled={!expenseForm.amount||expenseFormStatus==="saving"}
               style={{width:"100%",padding:14,borderRadius:12,fontWeight:700,fontSize:13,background:expenseForm.amount?`linear-gradient(135deg,${CAT_COLOR[expenseForm.category]||"#6366F1"},#38BDF8)`:"rgba(255,255,255,0.06)",border:"none",color:expenseForm.amount?"white":"#4B5563",cursor:expenseForm.amount?"pointer":"default"}}>
-              Save Expense
+              {expenseFormMode==="edit"?"Save Changes":"Save Expense"}
             </button>
+            {expenseFormMode==="edit"&&(
+              <button
+                onClick={deleteExpense}
+                disabled={expenseFormStatus==="saving"}
+                style={{width:"100%",padding:12,marginTop:8,borderRadius:12,fontWeight:700,fontSize:12,background:"transparent",border:`1px solid ${TH.red}40`,color:TH.red,cursor:"pointer"}}>
+                Delete This Entry
+              </button>
+            )}
           </div>
           </>)}
           </>
@@ -3642,7 +3695,7 @@ export default function App(){
         <div style={{position:"fixed",inset:0,zIndex:200}} onClick={()=>setQuickMenu(false)}>
           <div style={{position:"absolute",bottom:90,left:"50%",transform:"translateX(-50%)",display:"flex",flexDirection:"column",gap:8,alignItems:"center",animation:"slideUp .2s ease-out"}}>
             <div style={{fontSize:10,fontWeight:600,color:"rgba(255,255,255,0.4)",marginBottom:2,letterSpacing:".05em"}}>QUICK ACTIONS</div>
-            <button onClick={(e)=>{e.stopPropagation();setQuickMenu(false);setExpenseFormStatus(null);setTab("spending");setSpendSubTab("logexpense");}}
+            <button onClick={(e)=>{e.stopPropagation();setQuickMenu(false);openAddExpense();}}
               style={{display:"flex",alignItems:"center",gap:10,background:"#0A0E1A",border:"1px solid rgba(99,102,241,0.3)",borderRadius:14,padding:"11px 18px",cursor:"pointer",minWidth:200,boxShadow:"0 8px 32px rgba(0,0,0,0.4)"}}>
               <div style={{width:32,height:32,borderRadius:10,background:"rgba(56,189,248,0.15)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>📝</div>
               <div style={{textAlign:"left"}}>
