@@ -98,6 +98,46 @@ const fmt = v => `฿${Math.round(v).toLocaleString()}`;
 const fd  = (v,d=2) => Number(v).toFixed(d);
 const sgn = v => v>=0?"+":"";
 const clr = (v, th=T) => v>=0?th.green:th.red;
+// Rounds a raw average UP to a clean, memorable number instead of an odd exact figure —
+// a budget target you're meant to glance at, not an arithmetic result. Step size scales with
+// magnitude (e.g. ~1,850 -> 2,000; ~350 -> 400; ~14,200 -> 15,000).
+function roundBudgetTarget(avg){
+  if(!avg||avg<=0) return 0;
+  const step = avg<500?50 : avg<2000?100 : avg<10000?500 : 1000;
+  return Math.ceil(avg/step)*step;
+}
+
+// 0-100 score -> a letter grade, matching the A/B/C color convention already used across the
+// Wealth tab (grade.startsWith("A") = green, "B" = gold, else red).
+function scoreToGrade(pct){
+  if(pct>=97) return "A+"; if(pct>=93) return "A"; if(pct>=90) return "A-";
+  if(pct>=87) return "B+"; if(pct>=83) return "B"; if(pct>=80) return "B-";
+  if(pct>=77) return "C+"; if(pct>=73) return "C"; if(pct>=70) return "C-";
+  if(pct>=60) return "D";
+  return "F";
+}
+
+// Estimates how much was added to a monthly-snapshot metric (e.g. fund cost basis) during a
+// given calendar `year`, grouped by `key` (fund code, debt name, ...). For each entity, the
+// baseline is its value just before the year's first snapshot — or 0 if the entity has no
+// snapshot before that year (i.e. it was opened/started during the year, so everything logged
+// this year counts as new money in). Only counts increases, never decreases (a value dropping
+// isn't a withdrawal in this dataset, usually just a NAV move alongside cost staying flat).
+function annualContribution(rows, key, field, year){
+  const byKey = {};
+  rows.forEach(r=>{ if(!r.month) return; (byKey[r[key]]=byKey[r[key]]||[]).push(r); });
+  let total = 0;
+  Object.values(byKey).forEach(arr=>{
+    const sorted = arr.slice().sort((a,b)=>monthRank(a.month)-monthRank(b.month));
+    const yearIdx = sorted.findIndex(r=>+String(r.month).trim().split(" ")[1]===year);
+    if(yearIdx===-1) return;
+    const lastIdxThisYear = (()=>{ let li=yearIdx; for(let i=yearIdx;i<sorted.length;i++){ if(+String(sorted[i].month).trim().split(" ")[1]===year) li=i; } return li; })();
+    const baseline = yearIdx>0 ? (sorted[yearIdx-1][field]||0) : 0;
+    const latest = sorted[lastIdxThisYear][field]||0;
+    total += Math.max(0, latest-baseline);
+  });
+  return total;
+}
 
 // Strip emojis + leading/trailing space from category names
 function cleanCat(s){
@@ -184,9 +224,9 @@ function downloadTextFile(filename, text){
 
 function buildSpendingMonths(spendingRows, txnRows){
   const byMonth = {};
-  (spendingRows||[]).forEach(s=>{ byMonth[s.month] = { m:s.month, budget:pn(s.budget), income:pn(s.income), grossIncome:pn(s.gross_income)||null, pvdEmployeePct:pn(s.pvd_pct)||null, pvdEmployerPct:pn(s.pvd_employer_pct)||null, transactions:[], cats:{} }; });
+  (spendingRows||[]).forEach(s=>{ byMonth[s.month] = { m:s.month, budget:pn(s.budget), income:pn(s.income), grossIncome:pn(s.gross_income)||null, pvdEmployeePct:pn(s.pvd_pct)||null, pvdEmployerPct:pn(s.pvd_employer_pct)||null, taxBracketPct:pn(s.tax_bracket_pct)||null, transactions:[], cats:{} }; });
   (txnRows||[]).forEach(t=>{
-    if(!byMonth[t.month]) byMonth[t.month] = { m:t.month, budget:70400, income:75400, grossIncome:null, pvdEmployeePct:null, pvdEmployerPct:null, transactions:[], cats:{} };
+    if(!byMonth[t.month]) byMonth[t.month] = { m:t.month, budget:70400, income:75400, grossIncome:null, pvdEmployeePct:null, pvdEmployerPct:null, taxBracketPct:null, transactions:[], cats:{} };
     const txn = { id:t.id, date:t.date, day:"", cat:cleanCat(t.category), desc:t.description||"", amount:pn(t.amount), method:t.method||"" };
     byMonth[t.month].transactions.push(txn);
     byMonth[t.month].cats[txn.cat] = (byMonth[t.month].cats[txn.cat]||0) + txn.amount;
@@ -433,6 +473,11 @@ export default function App(){
   const [holdingsHistory,setHoldingsHistory]=useState([]); // every logged month, for the value/gain trend
   const [debts,setDebts]=useState(FB_D); // latest month per debt name — used everywhere as "current" debt
   const [debtHistory,setDebtHistory]=useState([]); // every logged month, for the payoff trend + month picker
+  // Emergency-fund target, in months of real average spend — her own choice (Wealth > Liquidity
+  // lets her change it), remembered locally per device like the profile photo.
+  const [efTargetMonths,setEfTargetMonths]=useState(()=>{
+    try{ return parseInt(localStorage.getItem('gf_ef_months'),10)||3; }catch{ return 3; }
+  });
   const targetAlloc = FB_T;
   // Real net worth history — every fund's value minus every debt's balance, forward-filled at
   // each month either was logged in. Falls back to placeholder points until there's 2+ months
@@ -466,6 +511,7 @@ export default function App(){
   const latestGrossIncome = (()=>{ for(let i=spendingMonths.length-1;i>=0;i--){ if(spendingMonths[i].grossIncome) return spendingMonths[i].grossIncome; } return null; })();
   const latestEmployeePvdPct = (()=>{ for(let i=spendingMonths.length-1;i>=0;i--){ if(spendingMonths[i].pvdEmployeePct!=null) return spendingMonths[i].pvdEmployeePct; } return null; })();
   const latestEmployerPvdPct = (()=>{ for(let i=spendingMonths.length-1;i>=0;i--){ if(spendingMonths[i].pvdEmployerPct!=null) return spendingMonths[i].pvdEmployerPct; } return null; })();
+  const latestTaxBracketPct  = (()=>{ for(let i=spendingMonths.length-1;i>=0;i--){ if(spendingMonths[i].taxBracketPct!=null) return spendingMonths[i].taxBracketPct; } return null; })();
   // Live monthly retirement contribution = PVD, both employee + employer sides (auto-deducted,
   // not a logged transaction — but real money landing in the fund) + any Retirement-category
   // transactions, averaged over the months we have real data for — used to drive the retirement
@@ -559,7 +605,7 @@ export default function App(){
 
   // ─── INCOME / GROSS / PVD EDITOR (per month, upserts into the spending table) ─────────
   // Employee & employer PVD% are separate fields since they diverge over time.
-  const BLANK_INCOME = {month:"",income:"",budget:"",grossIncome:"",pvdEmployeePct:"",pvdEmployerPct:""};
+  const BLANK_INCOME = {month:"",income:"",budget:"",grossIncome:"",pvdEmployeePct:"",pvdEmployerPct:"",taxBracketPct:""};
   const [incomeForm,setIncomeForm]=useState(BLANK_INCOME);
   const [incomeFormStatus,setIncomeFormStatus]=useState(null); // null | "saving" | "success" | "error"
   const [incomeMonthMode,setIncomeMonthMode]=useState("existing"); // "existing" | "new"
@@ -574,6 +620,7 @@ export default function App(){
       grossIncome: String(src.grossIncome || latestGrossIncome || ""),
       pvdEmployeePct: String(src.pvdEmployeePct!=null ? src.pvdEmployeePct : (latestEmployeePvdPct!=null ? latestEmployeePvdPct : 12)),
       pvdEmployerPct: String(src.pvdEmployerPct!=null ? src.pvdEmployerPct : (latestEmployerPvdPct!=null ? latestEmployerPvdPct : 12)),
+      taxBracketPct: String(src.taxBracketPct!=null ? src.taxBracketPct : (latestTaxBracketPct!=null ? latestTaxBracketPct : 15)),
     });
     setIncomeMonthMode("existing");
     setIncomeFormStatus(null);
@@ -586,11 +633,12 @@ export default function App(){
     const grossIncome = parseFloat(incomeForm.grossIncome)||0;
     const pvdEmployeePct = parseFloat(incomeForm.pvdEmployeePct)||0;
     const pvdEmployerPct = parseFloat(incomeForm.pvdEmployerPct)||0;
+    const taxBracketPct = parseFloat(incomeForm.taxBracketPct)||0;
     if(!month||!income) return;
     setIncomeFormStatus("saving");
     try{
       const { error } = await supabase.from("spending").upsert(
-        { month, income, budget, gross_income: grossIncome, pvd_pct: pvdEmployeePct, pvd_employer_pct: pvdEmployerPct },
+        { month, income, budget, gross_income: grossIncome, pvd_pct: pvdEmployeePct, pvd_employer_pct: pvdEmployerPct, tax_bracket_pct: taxBracketPct },
         { onConflict: "month" }
       );
       if(error) throw error;
@@ -824,54 +872,124 @@ export default function App(){
 
   useEffect(()=>{fetchAll();},[fetchAll]);
 
+  // Real Wealth Analysis — every figure below is computed from live Supabase data (holdings,
+  // debts, spending, and the income/PVD/tax-bracket you've logged) rather than hand-typed each
+  // month. The 800ms delay is just UX polish so "Run Full Analysis" doesn't feel instantaneous.
   const runWealthAnalysis = () => {
     setWealthLoading(true);
     setWealthError(null);
-    // Hardcoded analysis — updated monthly during data review session
-    // Last updated: June 2026
     setTimeout(() => {
+      const currentYear = new Date().getFullYear();
+
+      // ── Allocation Audit ────────────────────────────────────────────────
+      // "Misallocated %" = half the sum of absolute deviations from target — roughly the share
+      // of the portfolio that would need to move to be perfectly on-target.
+      const misallocatedPct = REBAL.reduce((s,r)=>s+Math.abs(r.diff),0)/2;
+      const allocationScore = Math.max(0, Math.round(100 - misallocatedPct*3));
+      const allocationGrade = scoreToGrade(allocationScore);
+      const sortedRebal = REBAL.slice().sort((a,b)=>Math.abs(b.diff)-Math.abs(a.diff));
+      const allocGaps = sortedRebal.filter(r=>Math.abs(r.diff)>=2).slice(0,4).map(r=>{
+        const action = r.diff>0
+          ? "No action needed — new contributions elsewhere will close this naturally."
+          : "Consider directing new contributions here.";
+        return `${r.cls} at ${fd(r.actualPct,1)}% vs ${r.target}% target — ${r.diff>0?"overweight":"underweight"} by ${fd(Math.abs(r.diff),1)}pts. ${action}`;
+      });
+      const allocVerdict = misallocatedPct<3
+        ? "Portfolio is well aligned with your target allocation."
+        : misallocatedPct<8
+          ? "Portfolio is reasonably close to target, with minor drift in a couple of classes."
+          : "Portfolio has drifted meaningfully from target — worth directing new contributions toward the underweight classes below.";
+
+      // ── Tax & Match ─────────────────────────────────────────────────────
+      // RMF/SSF contributions this year = cost-basis growth of your "Personal" holdings (the
+      // RMF/SSF funds you DCA into yourself, as opposed to PVD funds under "Retirement").
+      const annualRmfSsf = annualContribution(holdingsHistory.filter(h=>h.type==="Personal"), "code", "cost", currentYear);
+      const pvdMonthsThisYear = spendingMonths.filter(m=>+String(m.m).trim().split(" ")[1]===currentYear && m.pvdEmployeePct!=null);
+      const avgMonthlyPvd = pvdMonthsThisYear.length
+        ? pvdMonthsThisYear.reduce((s,m)=>s+Math.round((m.grossIncome||latestGrossIncome||GROSS_INCOME)*m.pvdEmployeePct/100),0)/pvdMonthsThisYear.length
+        : PVD_EMPLOYEE;
+      const annualPvd = Math.round(avgMonthlyPvd*12);
+      // Approximation of Thai combined RMF+SSF+PVD deduction cap: lower of ฿500,000 or 30% of
+      // gross annual income. Not tax advice — a simplified estimate for tracking purposes only.
+      const combinedCap = Math.min(500000, GROSS_INCOME*12*0.3);
+      const capRemainingAfterPvd = Math.max(0, combinedCap-annualPvd);
+      const rmfSsfCounted = Math.min(annualRmfSsf, capRemainingAfterPvd);
+      const taxBracket = TAX_BRACKET_PCT/100;
+      const pvdSaved = Math.round(annualPvd*taxBracket);
+      const rmfSaved = Math.round(rmfSsfCounted*taxBracket);
+      const pvdUtil = Math.min(100, (PVD_EMPLOYEE_PCT/15)*100);
+      const rmfUtil = capRemainingAfterPvd>0 ? Math.min(100, annualRmfSsf/capRemainingAfterPvd*100) : 100;
+      const taxScore = Math.round(pvdUtil*0.4 + rmfUtil*0.6);
+      const taxGrade = scoreToGrade(taxScore);
+      const room = Math.max(0, capRemainingAfterPvd-rmfSsfCounted);
+      const taxVerdict = `PVD ${fd(PVD_EMPLOYEE_PCT,0)}% + RMF/SSF ~${fmt(annualRmfSsf)}/yr saving an estimated ${fmt(pvdSaved+rmfSaved)}/year in tax at your ${fd(TAX_BRACKET_PCT,0)}% bracket.`;
+      const taxTip = room>10000
+        ? `You have roughly ${fmt(room)} of RMF/SSF deduction room left for ${currentYear} — topping up before Dec 31 saves an extra ~${fmt(Math.round(room*taxBracket))} in tax.`
+        : `You're close to maxing your RMF/SSF/PVD deduction room for ${currentYear} — nice work.`;
+
+      // ── Liquidity ───────────────────────────────────────────────────────
+      const liquidityScore = Math.round(Math.min(100, (efTargetMonths?EF_MONTHS_COVERED/efTargetMonths:0)*100));
+      const liquidityGrade = scoreToGrade(liquidityScore);
+      const liquidityRisk = EF_MONTHS_COVERED<1 ? "high" : EF_MONTHS_COVERED<efTargetMonths ? "medium" : "low";
+      const liquidityVerdict = EF_MONTHS_COVERED<1
+        ? `At ${fd(EF_MONTHS_COVERED,1)} months coverage (${fmt(EF_BAL)} liquid vs ${fmt(avgMonthlySpend||0)} average monthly spend), your emergency fund remains Priority 1.`
+        : EF_MONTHS_COVERED<efTargetMonths
+          ? `At ${fd(EF_MONTHS_COVERED,1)} months coverage, you're ${fd(efTargetMonths-EF_MONTHS_COVERED,1)} months short of your ${efTargetMonths}-month target — about ${EF_MO_LEFT} months away at your current pace.`
+          : `At ${fd(EF_MONTHS_COVERED,1)} months coverage, your emergency fund is fully funded against your ${efTargetMonths}-month target — nice cushion.`;
+
+      // ── Savings Rate ────────────────────────────────────────────────────
+      const savingsScore = Math.max(0, Math.min(100, Math.round(SAVINGS_RATE*4)));
+      const savingsGrade = scoreToGrade(savingsScore);
+
+      // ── Overall score = simple average of the four areas above ─────────
+      const overallScore = Math.round((allocationScore+taxScore+liquidityScore+savingsScore)/4);
+      const itemsNeedingAttention = [allocationScore,taxScore,liquidityScore,savingsScore].filter(s=>s<80).length;
+      const tier = overallScore>=85?"Excellent":overallScore>=70?"Good":overallScore>=50?"Fair":"Needs attention";
+      const scoreLabel = itemsNeedingAttention>0
+        ? `${tier} · ${itemsNeedingAttention} item${itemsNeedingAttention>1?"s":""} need attention`
+        : `${tier} · All areas on track`;
+
+      // ── Next Move — generated from the same real numbers above, not hand-written ────────
+      const lowHanging = [];
+      const strategic = [];
+      if(EF_MONTHS_COVERED<efTargetMonths){
+        lowHanging.push(`Emergency fund is your top priority — ${fmt(Math.max(0,EF_TARGET-EF_BAL))} more to hit your ${efTargetMonths}-month target, about ${EF_MO_LEFT} months away at your current pace.`);
+      }
+      if(room>10000 && [9,10,11].includes(new Date().getMonth())){
+        lowHanging.push(`Top up RMF/SSF by up to ${fmt(room)} before Dec 31 to use your remaining ${currentYear} deduction room — saves an estimated ${fmt(Math.round(room*taxBracket))} in tax.`);
+      }
+      if(SAVINGS_RATE<20){
+        lowHanging.push(`Your savings rate is ${SAVINGS_RATE}% — nudging it toward 20% would meaningfully speed up your net-worth trajectory.`);
+      }
+      const worstGap = sortedRebal.find(r=>r.diff<-2);
+      if(worstGap){
+        strategic.push(`${worstGap.cls} is underweight by ${fd(Math.abs(worstGap.diff),1)}pts — direct new contributions there to close the gap.`);
+      }
+      if(PVD_EMPLOYEE_PCT<15){
+        strategic.push(`Consider raising your PVD contribution from ${fd(PVD_EMPLOYEE_PCT,0)}% toward 15% — the employer match stays the same, but your own retirement pot grows faster and taxable income drops further.`);
+      }
+      debts.filter(d=>d.balance>0).slice().sort((a,b)=>(a.years||99)-(b.years||99)).slice(0,2).forEach(d=>{
+        strategic.push(`${d.name} clears in ~${fd(d.years,1)} years at ${fmt(d.monthly)}/mo — frees up that amount for investing once paid off.`);
+      });
+      if(!lowHanging.length) lowHanging.push("No urgent moves right now — everything tracked here is in good shape.");
+      if(!strategic.length) strategic.push("No longer-range flags right now — check back after your next monthly log.");
+
       setWealthData({
-        score: 78,
-        scoreLabel: "Good · 2 items need attention",
-        allocation: {
-          grade: "B+",
-          verdict: "Portfolio well-structured and growth-oriented. US Equity remains underweight but DCA is correcting it steadily.",
-          gaps: [
-            "US Equity at ~7% vs 15% target — underweight. SCBRMS&P500 DCA ฿10,000/mo alternating is correcting this. On track by mid-2027.",
-            "Balanced at ~20% vs 5% target — overweight due to UNITED GLOBAL BALANCED in PVD. Cannot easily adjust PVD allocation. Will naturally rebalance over time.",
-            "Thai Equity at ~1% vs 5% target — consider SCBRM2 top-up when EF completes Oct 2027 and Phase 2 investing unlocks."
-          ]
-        },
-        tax: {
-          grade: "A",
-          rmfSaved: 12000,
-          pvdSaved: 15972,
-          verdict: "Near-optimal tax efficiency. RMF + PVD 12% saving ~฿27,972/year in tax at your 15% marginal bracket.",
-          tip: "December bonus: ฿50,000 into Thai ESG saves an additional ฿7,500 in tax — use it before Dec 31 deadline. January 2027: PVD to 15% adds further savings."
-        },
-        nextMove: {
-          lowHanging: [
-            "Thai ESG ฿50,000 with December 2026 bonus → saves ฿7,500 in tax immediately. Best ROI available right now.",
-            "January 2027: PVD contribution to 15% — adds ฿2,662/month to retirement compounding for 16 years.",
-          ],
-          strategic: [
-            "January 2027: Switch RMF DCA to simultaneous ฿6,000/฿6,000 split across SCBRMS&P500 + SCBRMWORLD(A) for smoother cost averaging.",
-            "October 2027: Emergency fund completes → redirect ฿8,000/month to investments. Phase 2 unlocks.",
-            "2031: Attached Housing loan clears → ฿3,300/month freed. Redirect to investments to accelerate toward ฿5M milestone.",
-            "2034: Mortgage clears → ฿7,500/month freed. Full ฿10,800/month available for investing or lifestyle upgrade."
-          ]
-        },
-        liquidity: {
-          grade: "C+",
-          monthsCovered: 0.8,
-          verdict: "At 0.8 months coverage (฿56,000 liquid vs ฿70,400 monthly spend), emergency fund remains Priority 1. All other optimizations wait until EF completes Oct 2027.",
-          risk: "medium"
-        }
+        score: overallScore,
+        scoreLabel,
+        allocation: { grade: allocationGrade, verdict: allocVerdict, gaps: allocGaps.length?allocGaps:["No class is more than 2pts off target — nothing to flag."] },
+        tax: { grade: taxGrade, rmfSaved, pvdSaved, verdict: taxVerdict, tip: taxTip },
+        nextMove: { lowHanging, strategic },
+        liquidity: { grade: liquidityGrade, monthsCovered: EF_MONTHS_COVERED, verdict: liquidityVerdict, risk: liquidityRisk },
+        savings: { grade: savingsGrade, score: savingsScore },
       });
       setWealthLastRun(new Date());
       setWealthLoading(false);
     }, 800);
   };
+  // Changing the emergency-fund target (Wealth > Liquidity) re-runs the analysis so the
+  // Liquidity grade/verdict reflect the new target immediately instead of going stale.
+  useEffect(()=>{ if(wealthData) runWealthAnalysis(); },[efTargetMonths]);
   useEffect(()=>{const t=setInterval(()=>fetchAll(true),5*60*1000);return()=>clearInterval(t);},[fetchAll]);
   useEffect(()=>{setSelMonth(spendingMonths.length-1);},[spendingMonths.length]);
 
@@ -898,9 +1016,26 @@ export default function App(){
   const DCA_FUND    = thisMonth%2!==0?"SCBRMS&P500":"SCBRMWORLD(A)";
   const DCA_NEXT    = DCA_FUND==="SCBRMS&P500"?"SCBRMWORLD(A)":"SCBRMS&P500";
   const EF_BAL      = cashFlow.emergencyFund||0;
-  const EF_TARGET   = 143000;
+  // Real average monthly spend — every logged month's total minus that month's own savings/
+  // investment transfers (Japan Fund, Retirement, Emergency, Investment), since those are money
+  // being set aside, not spent. This is what "months of coverage" should actually be measured
+  // against, and what the emergency-fund target below is built from.
+  const monthlyEssentialSpend = spendingMonths.map(m=>{
+    const savings = (m.transactions||[]).filter(t=>SAVINGS_CATS.includes(t.cat)).reduce((s,t)=>s+t.amount,0);
+    return (m.spent||0) - savings;
+  }).filter(v=>v>0);
+  const avgMonthlySpend = monthlyEssentialSpend.length ? monthlyEssentialSpend.reduce((s,v)=>s+v,0)/monthlyEssentialSpend.length : 0;
+  // Real average monthly Emergency-fund contribution, across months that actually logged one —
+  // used to project how many months are left to hit the target at her real pace.
+  const monthlyEfContribs = spendingMonths.map(m=>(m.transactions||[]).filter(t=>t.cat==="Emergency").reduce((s,t)=>s+t.amount,0)).filter(v=>v>0);
+  const avgEfContribution = monthlyEfContribs.length ? monthlyEfContribs.reduce((s,v)=>s+v,0)/monthlyEfContribs.length : 8000;
+  // Target = her chosen number of months x real average spend, so it moves with her actual
+  // cost of living instead of a number typed in once. Falls back to the old fixed figure until
+  // there's enough spending history to compute a real average.
+  const EF_TARGET   = avgMonthlySpend>0 ? Math.round(efTargetMonths*avgMonthlySpend) : 143000;
   const EF_PCT      = Math.min(100,EF_BAL/EF_TARGET*100);
-  const EF_MO_LEFT  = EF_BAL<EF_TARGET?Math.ceil((EF_TARGET-EF_BAL)/8000):0;
+  const EF_MO_LEFT  = EF_BAL<EF_TARGET?Math.ceil((EF_TARGET-EF_BAL)/avgEfContribution):0;
+  const EF_MONTHS_COVERED = avgMonthlySpend>0 ? EF_BAL/avgMonthlySpend : 0;
   // Savings Rate = deliberate savings / gross income
   // Includes: spending sheet savings categories + PVD employee % (deducted from gross)
   // Gross income & PVD% now live per-month from Supabase (spending.gross_income / spending.pvd_pct),
@@ -908,6 +1043,7 @@ export default function App(){
   const GROSS_INCOME      = CM.grossIncome || latestGrossIncome || 88733;
   const PVD_EMPLOYEE_PCT  = CM.pvdEmployeePct!=null ? CM.pvdEmployeePct : (latestEmployeePvdPct!=null ? latestEmployeePvdPct : 12);
   const PVD_EMPLOYER_PCT  = CM.pvdEmployerPct!=null ? CM.pvdEmployerPct : (latestEmployerPvdPct!=null ? latestEmployerPvdPct : 12);
+  const TAX_BRACKET_PCT   = CM.taxBracketPct!=null ? CM.taxBracketPct : (latestTaxBracketPct!=null ? latestTaxBracketPct : 15);
   const PVD_EMPLOYEE      = Math.round(GROSS_INCOME * PVD_EMPLOYEE_PCT / 100);
   const PVD_EMPLOYER      = Math.round(GROSS_INCOME * PVD_EMPLOYER_PCT / 100);
   const SAVINGS_CATS_TXN = ["Emergency","Japan Fund","Retirement"];
@@ -1032,9 +1168,9 @@ export default function App(){
               {isLive?"● Live data":"◌ Cached data"}
             </button>
             {/* Emergency Fund warning badge */}
-            {(EF_BAL/35750)<1&&(
+            {(EF_MONTHS_COVERED||0)<1&&(
               <button onClick={()=>setTab("planning")} style={{fontSize:10,fontWeight:700,padding:"3px 10px",borderRadius:999,cursor:"pointer",border:"none",color:"#F87171",background:"rgba(248,113,113,0.1)",width:"100%",textAlign:"left",marginTop:4}}>
-                ⚠️ EF {(EF_BAL/35750).toFixed(1)}mo — Priority 1
+                ⚠️ EF {(EF_MONTHS_COVERED||0).toFixed(1)}mo — Priority 1
               </button>
             )}
           </div>
@@ -1141,7 +1277,7 @@ export default function App(){
                         <div style={{fontSize:10,color:TH.muted,marginTop:2}}>฿8,000/mo · SCB savings</div>
                       </div>
                       <div style={{textAlign:"right"}}>
-                        <div style={{fontFamily:TH.mono,fontSize:20,fontWeight:900,color:TH.gold}}>{(EF_BAL/35750).toFixed(1)}<span style={{fontSize:11}}> mo</span></div>
+                        <div style={{fontFamily:TH.mono,fontSize:20,fontWeight:900,color:TH.gold}}>{(EF_MONTHS_COVERED||0).toFixed(1)}<span style={{fontSize:11}}> mo</span></div>
                         <div style={{fontSize:9,color:TH.muted}}>{fmt(EF_BAL)} of {fmt(EF_TARGET)} · {EF_PCT.toFixed(0)}%</div>
                       </div>
                     </div>
@@ -1253,7 +1389,7 @@ export default function App(){
                   <div style={dcStyle}>
                     <div style={{fontSize:12,fontWeight:700,color:TH.text,marginBottom:12}}>Goals</div>
                     {[
-                      {label:"Emergency Fund", pct:EF_PCT,                                    color:TH.gold,   note:`${fmt(EF_BAL)} / ฿143K`},
+                      {label:"Emergency Fund", pct:EF_PCT,                                    color:TH.gold,   note:`${fmt(EF_BAL)} / ${fmt(EF_TARGET)}`},
                       {label:"Retirement",     pct:Math.min(100,(PERSONAL+RETIRE)/5000000*100), color:TH.accent, note:`${fmt(PERSONAL+RETIRE)} / ฿5M`},
                       {label:"Japan Fund",     pct:Math.min(100,(cashFlow.travelFund||0)/120000*100), color:TH.accent2, note:`${fmt(cashFlow.travelFund||0)} / ฿120K`},
                     ].map((g,i)=>(
@@ -1607,7 +1743,7 @@ export default function App(){
                 <div style={dcStyle}>
                   <div style={{fontSize:12,fontWeight:700,color:TH.text,marginBottom:12}}>Goals</div>
                   {[
-                    {label:"Emergency Fund",pct:EF_PCT,color:TH.gold,note:`${fmt(EF_BAL)} / ฿143K`},
+                    {label:"Emergency Fund",pct:EF_PCT,color:TH.gold,note:`${fmt(EF_BAL)} / ${fmt(EF_TARGET)}`},
                     {label:"Retirement",pct:Math.min(100,(PERSONAL+RETIRE)/5000000*100),color:TH.accent,note:`${fmt(PERSONAL)} + ${fmt(RETIRE)} = ${fmt(PERSONAL+RETIRE)} / ฿5M`},
                     {label:"Japan Fund",pct:Math.min(100,(cashFlow.travelFund||0)/120000*100),color:TH.accent2,note:`${fmt(cashFlow.travelFund||0)} / ฿120K`},
                   ].map((g,i)=>(
@@ -1734,7 +1870,7 @@ export default function App(){
                         <div style={{fontSize:12,color:TH.muted,marginTop:4}}>{wealthData.scoreLabel}</div>
                       </div>
                       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-                        {[{l:"Allocation",g:wealthData.allocation?.grade},{l:"Tax",g:wealthData.tax?.grade},{l:"Liquidity",g:wealthData.liquidity?.grade},{l:"Growth",g:wealthData.score>=70?"A-":"B+"}].map((s,i)=>(
+                        {[{l:"Allocation",g:wealthData.allocation?.grade},{l:"Tax",g:wealthData.tax?.grade},{l:"Liquidity",g:wealthData.liquidity?.grade},{l:"Savings",g:wealthData.savings?.grade}].map((s,i)=>(
                           <div key={i} style={{textAlign:"center",padding:"8px 12px",background:TH.surf,borderRadius:10,border:`1px solid ${TH.border}`}}>
                             <div style={{fontSize:9,color:TH.muted,marginBottom:3}}>{s.l}</div>
                             <div style={{fontSize:16,fontWeight:900,color:s.g?.startsWith("A")?TH.green:s.g?.startsWith("B")?TH.gold:TH.red}}>{s.g||"B"}</div>
@@ -1844,9 +1980,9 @@ export default function App(){
                       </div>
                       <div style={{flex:1}}>
                         <div style={{height:8,background:darkMode?"rgba(255,255,255,0.07)":"rgba(0,0,0,0.07)",borderRadius:999,overflow:"hidden",marginBottom:6}}>
-                          <div style={{height:"100%",width:`${Math.min((wealthData.liquidity.monthsCovered||0)/4*100,100)}%`,background:wealthData.liquidity.monthsCovered>=3?TH.green:wealthData.liquidity.monthsCovered>=1.5?TH.gold:TH.red,borderRadius:999}}/>
+                          <div style={{height:"100%",width:`${Math.min((wealthData.liquidity.monthsCovered||0)/efTargetMonths*100,100)}%`,background:wealthData.liquidity.monthsCovered>=efTargetMonths?TH.green:wealthData.liquidity.monthsCovered>=efTargetMonths/2?TH.gold:TH.red,borderRadius:999}}/>
                         </div>
-                        <div style={{display:"flex",justifyContent:"space-between",fontSize:9,color:TH.dim}}><span>0</span><span>2mo</span><span>4mo target</span></div>
+                        <div style={{display:"flex",justifyContent:"space-between",fontSize:9,color:TH.dim}}><span>0</span><span>{fd(efTargetMonths/2,0)}mo</span><span>{efTargetMonths}mo target</span></div>
                       </div>
                     </div>
                     <div style={{fontSize:11,color:TH.muted,lineHeight:1.6}}>{wealthData.liquidity.verdict}</div>
@@ -2241,7 +2377,7 @@ export default function App(){
                 <div style={{fontSize:10,color:TH.muted,marginTop:2}}>฿8,000/mo · SCB savings · target 4 months</div>
               </div>
               <div style={{textAlign:"right"}}>
-                    <div style={{fontFamily:TH.mono,fontSize:22,fontWeight:900,color:TH.gold,lineHeight:1}}>{(EF_BAL/35750).toFixed(1)}<span style={{fontSize:12,fontWeight:600}}> mo</span></div>
+                    <div style={{fontFamily:TH.mono,fontSize:22,fontWeight:900,color:TH.gold,lineHeight:1}}>{(EF_MONTHS_COVERED||0).toFixed(1)}<span style={{fontSize:12,fontWeight:600}}> mo</span></div>
                 <div style={{fontSize:9,color:TH.muted,marginTop:2}}>{fmt(EF_BAL)} of {fmt(EF_TARGET)} · {EF_PCT.toFixed(0)}% complete</div>
               </div>
             </div>
@@ -2502,40 +2638,59 @@ export default function App(){
             const totalCost = holdings.reduce((s,h)=>s+h.cost,0);
             const totalGain = TOTAL-totalCost;
             const gainPct = totalCost?(totalGain/totalCost*100):0;
+            const gainUp = totalGain>=0;
             return(
             <>
-            <div style={cardStyle}>
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:14}}>
-                {[
-                  {l:"Invested",v:totalCost,c:TH.text2},
-                  {l:"Value Now",v:TOTAL,c:TH.text},
-                  {l:"Unrealized Gain",v:totalGain,c:clr(totalGain,TH),pct:gainPct},
-                ].map((s,i)=>(
-                  <div key={i} style={{textAlign:"center"}}>
-                    <div style={{fontSize:9,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em",marginBottom:4}}>{s.l}</div>
-                    <div style={{fontSize:13,fontWeight:800,color:s.c,fontFamily:TH.mono}}>{sgn(s.v)}{fmt(s.v)}</div>
-                    {s.pct!=null&&<div style={{fontSize:9,fontWeight:700,color:s.c,marginTop:1}}>{sgn(s.pct)}{fd(s.pct,1)}%</div>}
+            {/* Hero — mirrors the Net Worth card's gradient treatment so Growth feels like a
+                first-class screen rather than a plain stat table. */}
+            <div style={{borderRadius:22,overflow:"hidden",background:"linear-gradient(145deg,#0D1035 0%,#080C20 60%,#060912 100%)",border:"1px solid rgba(74,222,128,0.25)",position:"relative"}}>
+              <div style={{position:"absolute",top:-40,right:-40,width:160,height:160,borderRadius:"50%",background:"radial-gradient(circle,rgba(74,222,128,0.18) 0%,transparent 70%)",pointerEvents:"none"}}/>
+              <div style={{padding:"16px 18px 18px",position:"relative"}}>
+                <div style={{fontSize:9,fontWeight:700,color:"#4ADE80",textTransform:"uppercase",letterSpacing:".1em",marginBottom:8}}>Unrealized Gain</div>
+                <div style={{display:"flex",alignItems:"baseline",gap:8,marginBottom:6}}>
+                  <div style={{fontFamily:TH.mono,fontSize:30,fontWeight:900,color:"#FFFFFF",letterSpacing:"-1.5px",lineHeight:1}}>
+                    {sgn(totalGain)}{fmt(totalGain)}
                   </div>
-                ))}
+                  <div style={{display:"inline-flex",alignItems:"center",gap:3,fontSize:11,fontWeight:700,color:gainUp?"#4ADE80":"#F87171",background:gainUp?"rgba(74,222,128,0.12)":"rgba(248,113,113,0.12)",border:`1px solid ${gainUp?"rgba(74,222,128,0.25)":"rgba(248,113,113,0.25)"}`,padding:"2px 8px",borderRadius:999}}>
+                    {gainUp?<TrendingUp size={10}/>:<TrendingDown size={10}/>}
+                    {sgn(gainPct)}{fd(gainPct,1)}%
+                  </div>
+                </div>
+                <div style={{display:"flex",alignItems:"center",gap:10,fontSize:11,color:"rgba(255,255,255,0.6)"}}>
+                  <span>Invested <b style={{color:"#D1D5DB",fontFamily:TH.mono,fontWeight:700}}>{fmt(totalCost)}</b></span>
+                  <ArrowRight size={11} color="rgba(255,255,255,0.35)"/>
+                  <span>Value now <b style={{color:"#FFFFFF",fontFamily:TH.mono,fontWeight:700}}>{fmt(TOTAL)}</b></span>
+                </div>
               </div>
-              <div style={{fontSize:9,fontWeight:700,color:TH.muted,marginBottom:8,textTransform:"uppercase",letterSpacing:".05em"}}>Portfolio Value vs Cost</div>
+            </div>
+
+            <div style={cardStyle}>
+              <div style={{fontSize:11,fontWeight:700,color:TH.text2,marginBottom:2}}>Portfolio Value vs Cost</div>
+              <div style={{fontSize:9,color:TH.muted,marginBottom:12}}>Green = value · dashed grey = what you put in</div>
               {growthData.length>=2?(
-                <ResponsiveContainer width="100%" height={140}>
-                  <AreaChart data={growthData} margin={{top:2,right:2,left:0,bottom:0}}>
+                <ResponsiveContainer width="100%" height={160}>
+                  <AreaChart data={growthData} margin={{top:6,right:4,left:0,bottom:0}}>
                     <defs>
                       <linearGradient id="portGrowthGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#4ADE80" stopOpacity={0.25}/>
+                        <stop offset="5%" stopColor="#4ADE80" stopOpacity={0.3}/>
                         <stop offset="95%" stopColor="#4ADE80" stopOpacity={0}/>
                       </linearGradient>
                     </defs>
                     <XAxis dataKey="m" tick={{fontSize:9,fill:TH.muted}} axisLine={false} tickLine={false}/>
                     <Tooltip formatter={(v,k)=>[fmt(v),k==="value"?"Value":"Cost"]} contentStyle={{background:darkMode?"#0D1117":"#fff",border:`1px solid ${TH.border}`,borderRadius:10,fontSize:10}}/>
                     <Area type="monotone" dataKey="cost" stroke={TH.muted} strokeWidth={1.5} strokeDasharray="3 3" fill="none" dot={{fill:TH.muted,r:2}}/>
-                    <Area type="monotone" dataKey="value" stroke="#4ADE80" strokeWidth={2} fill="url(#portGrowthGrad)" dot={{fill:"#4ADE80",r:3}}/>
+                    <Area type="monotone" dataKey="value" stroke="#4ADE80" strokeWidth={2.5} fill="url(#portGrowthGrad)" dot={{fill:"#4ADE80",r:3}} activeDot={{r:5}}/>
                   </AreaChart>
                 </ResponsiveContainer>
               ):(
-                <div style={{fontSize:10,color:TH.muted,fontStyle:"italic",textAlign:"center",padding:"20px 0"}}>Log at least 2 months of fund updates to see this trend.</div>
+                <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:10,padding:"20px 10px"}}>
+                  <div style={{width:44,height:44,borderRadius:12,background:"rgba(74,222,128,0.1)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20}}>📈</div>
+                  <div style={{fontSize:11,color:TH.text2,textAlign:"center",fontWeight:600}}>Not enough history yet</div>
+                  <div style={{fontSize:10,color:TH.muted,textAlign:"center",maxWidth:220}}>Log one more month of fund updates and this trend fills in automatically.</div>
+                  <button onClick={openAddFund} style={{marginTop:2,display:"flex",alignItems:"center",gap:6,padding:"8px 16px",borderRadius:11,border:"none",background:"linear-gradient(135deg,#4ADE80,#22C55E)",color:"#06240F",fontSize:11,fontWeight:700,cursor:"pointer"}}>
+                    <Plus size={12}/> Log This Month
+                  </button>
+                </div>
               )}
             </div>
             </>
@@ -2848,28 +3003,29 @@ export default function App(){
               .filter(c=>!SAVINGS_CATS.includes(c));
             const rows = budgetCats.map(c=>{
               const priorVals = priorMonths.map(m=>m.cats?.[c]).filter(v=>v>0);
-              const avg = priorVals.length ? priorVals.reduce((s,v)=>s+v,0)/priorVals.length : null;
+              const rawAvg = priorVals.length ? priorVals.reduce((s,v)=>s+v,0)/priorVals.length : null;
+              const target = rawAvg!=null ? roundBudgetTarget(rawAvg) : null;
               const spent = CM.cats?.[c]||0;
-              return { cat:c, avg, spent };
-            }).filter(r=>r.spent>0||r.avg!=null).sort((a,b)=>(b.avg||b.spent)-(a.avg||a.spent)).slice(0,10);
+              return { cat:c, target, spent };
+            }).filter(r=>r.spent>0||r.target!=null).sort((a,b)=>(b.target||b.spent)-(a.target||a.spent)).slice(0,10);
             if(!rows.length) return null;
             return(
               <div style={cardStyle}>
                 <div style={{fontSize:12,fontWeight:700,marginBottom:2}}>Category Budgets</div>
-                <div style={{fontSize:9,color:TH.muted,marginBottom:12}}>Target = your average spend in each category over prior months</div>
+                <div style={{fontSize:9,color:TH.muted,marginBottom:12}}>Target = your average spend in each category, rounded up to a clean number</div>
                 {rows.map((r,i)=>{
-                  const pct = r.avg?Math.min((r.spent/r.avg)*100,999):null;
-                  const over = r.avg!=null && r.spent>r.avg;
+                  const pct = r.target?Math.min((r.spent/r.target)*100,999):null;
+                  const over = r.target!=null && r.spent>r.target;
                   return(
                     <div key={i} style={{marginBottom:i<rows.length-1?11:0}}>
                       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",fontSize:11,marginBottom:4}}>
                         <div style={{display:"flex",alignItems:"center",gap:7}}><div style={{width:7,height:7,borderRadius:"50%",background:CAT_COLOR[r.cat]||TH.accent,flexShrink:0}}/><span style={{fontWeight:600,color:TH.text2}}>{r.cat}</span></div>
                         <div style={{display:"flex",gap:6,alignItems:"center"}}>
                           <span style={{fontWeight:700,fontFamily:TH.mono,color:over?TH.red:TH.text}}>{fmt(r.spent)}</span>
-                          <span style={{fontSize:9,color:TH.muted}}>/ {r.avg!=null?fmt(Math.round(r.avg)):"—"}</span>
+                          <span style={{fontSize:9,color:TH.muted}}>/ {r.target!=null?fmt(r.target):"—"}</span>
                         </div>
                       </div>
-                      {r.avg!=null?(
+                      {r.target!=null?(
                         <div style={{height:4,background:darkMode?"rgba(255,255,255,0.06)":"rgba(0,0,0,0.06)",borderRadius:999,overflow:"hidden"}}>
                           <div style={{height:"100%",width:`${Math.min(pct,100)}%`,background:over?"linear-gradient(90deg,#F87171,#DC2626)":CAT_COLOR[r.cat]||TH.accent,borderRadius:999,transition:"width 1s ease"}}/>
                         </div>
@@ -3178,7 +3334,7 @@ export default function App(){
           <div style={cardStyle}>
             <div style={{fontSize:12,fontWeight:700,marginBottom:12}}>Goals</div>
             {[
-              {label:"Emergency", pct:EF_PCT,                                    color:TH.gold,   note:`${fmt(EF_BAL)} / ฿143K`},
+              {label:"Emergency", pct:EF_PCT,                                    color:TH.gold,   note:`${fmt(EF_BAL)} / ${fmt(EF_TARGET)}`},
               {label:"Retirement",pct:Math.min(100,(PERSONAL+RETIRE)/5000000*100), color:TH.accent, note:`${fmt(PERSONAL)} + ${fmt(RETIRE)} = ${fmt(PERSONAL+RETIRE)} / ฿5M`},
               {label:"Japan Fund",pct:Math.min(100,(cashFlow.travelFund||0)/120000*100),color:TH.accent2,note:`${fmt(cashFlow.travelFund||0)} / ฿120K`},
             ].map((g,i)=>(
@@ -3406,6 +3562,7 @@ export default function App(){
                         grossIncome:String(src?.grossIncome||latestGrossIncome||""),
                         pvdEmployeePct:String(src?.pvdEmployeePct!=null?src.pvdEmployeePct:(latestEmployeePvdPct!=null?latestEmployeePvdPct:12)),
                         pvdEmployerPct:String(src?.pvdEmployerPct!=null?src.pvdEmployerPct:(latestEmployerPvdPct!=null?latestEmployerPvdPct:12)),
+                        taxBracketPct:String(src?.taxBracketPct!=null?src.taxBracketPct:(latestTaxBracketPct!=null?latestTaxBracketPct:15)),
                       });
                     }}
                     style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 12px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit"}}>
@@ -3458,6 +3615,15 @@ export default function App(){
                     onChange={e=>setIncomeForm(f=>({...f,pvdEmployerPct:e.target.value}))} placeholder="e.g. 12"
                     style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 12px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
                 </div>
+              </div>
+
+              <div style={{marginBottom:14}}>
+                <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Marginal Tax Bracket</label>
+                <select value={incomeForm.taxBracketPct} onChange={e=>setIncomeForm(f=>({...f,taxBracketPct:e.target.value}))}
+                  style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 12px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit"}}>
+                  {[0,5,10,15,20,25,30,35].map(p=><option key={p} value={p}>{p}%</option>)}
+                </select>
+                <div style={{fontSize:9,color:TH.muted,marginTop:5}}>Thai PIT bracket your last taxable baht falls in — used to estimate RMF/SSF/PVD tax savings in Wealth Analysis. Not tax advice.</div>
               </div>
 
               {parseFloat(incomeForm.grossIncome)>0&&(parseFloat(incomeForm.pvdEmployeePct)>=0||parseFloat(incomeForm.pvdEmployerPct)>=0)&&(()=>{
@@ -3760,7 +3926,7 @@ export default function App(){
                     {l:"Allocation",g:wealthData.allocation?.grade},
                     {l:"Tax",g:wealthData.tax?.grade},
                     {l:"Liquidity",g:wealthData.liquidity?.grade},
-                    {l:"Growth",g:wealthData.score>=70?"A-":wealthData.score>=50?"B+":"B"},
+                    {l:"Savings",g:wealthData.savings?.grade},
                   ].map((s,i)=>(
                     <div key={i} style={{textAlign:"center",padding:"6px 10px",background:"rgba(255,255,255,0.04)",borderRadius:10}}>
                       <div style={{fontSize:8,color:TH.muted,marginBottom:2}}>{s.l}</div>
@@ -3814,7 +3980,8 @@ export default function App(){
                 </div>
               </div>
               <div style={{fontSize:10,color:TH.muted,marginBottom:6}}>{wealthData.tax.verdict}</div>
-              {wealthData.tax.tip&&<div style={{padding:"8px 10px",background:"rgba(99,102,241,0.06)",border:"1px solid rgba(99,102,241,0.15)",borderRadius:10,fontSize:10,color:TH.text2}}><span style={{color:TH.accent,fontWeight:700}}>Tip: </span>{wealthData.tax.tip}</div>}
+              {wealthData.tax.tip&&<div style={{padding:"8px 10px",background:"rgba(99,102,241,0.06)",border:"1px solid rgba(99,102,241,0.15)",borderRadius:10,fontSize:10,color:TH.text2,marginBottom:6}}><span style={{color:TH.accent,fontWeight:700}}>Tip: </span>{wealthData.tax.tip}</div>}
+              <div style={{fontSize:8,color:TH.dim,fontStyle:"italic"}}>Estimate based on standard RMF/SSF/PVD deduction rules — not tax advice.</div>
             </div>
           )}
 
@@ -3853,6 +4020,16 @@ export default function App(){
                   background:wealthData.liquidity.risk==="low"?"rgba(74,222,128,0.1)":wealthData.liquidity.risk==="medium"?"rgba(251,191,36,0.1)":"rgba(248,113,113,0.1)",
                   padding:"2px 10px",borderRadius:999,textTransform:"capitalize"}}>{wealthData.liquidity.risk} risk</div>
               </div>
+              <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:10}}>
+                <span style={{fontSize:9,color:TH.muted}}>Target:</span>
+                {[3,6,12].map(mo=>(
+                  <button key={mo} onClick={()=>{setEfTargetMonths(mo);try{localStorage.setItem('gf_ef_months',String(mo));}catch{}}}
+                    style={{fontSize:9,fontWeight:700,padding:"3px 9px",borderRadius:999,cursor:"pointer",
+                      border:`1px solid ${efTargetMonths===mo?TH.accent:TH.border}`,
+                      background:efTargetMonths===mo?`${TH.accent}18`:"transparent",
+                      color:efTargetMonths===mo?TH.accent:TH.muted}}>{mo}mo</button>
+                ))}
+              </div>
               <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:10}}>
                 <div style={{textAlign:"center"}}>
                   <div style={{fontFamily:TH.mono,fontSize:28,fontWeight:900,color:TH.text,lineHeight:1}}>{wealthData.liquidity.monthsCovered?.toFixed(1)}</div>
@@ -3860,9 +4037,9 @@ export default function App(){
                 </div>
                 <div style={{flex:1}}>
                   <div style={{height:8,background:"rgba(255,255,255,0.07)",borderRadius:999,overflow:"hidden",marginBottom:4}}>
-                    <div style={{height:"100%",width:`${Math.min((wealthData.liquidity.monthsCovered||0)/4*100,100)}%`,background:wealthData.liquidity.monthsCovered>=3?TH.green:wealthData.liquidity.monthsCovered>=1.5?TH.gold:TH.red,borderRadius:999}}/>
+                    <div style={{height:"100%",width:`${Math.min((wealthData.liquidity.monthsCovered||0)/efTargetMonths*100,100)}%`,background:wealthData.liquidity.monthsCovered>=efTargetMonths?TH.green:wealthData.liquidity.monthsCovered>=efTargetMonths/2?TH.gold:TH.red,borderRadius:999}}/>
                   </div>
-                  <div style={{display:"flex",justifyContent:"space-between",fontSize:8,color:TH.dim}}><span>0mo</span><span>2mo</span><span>4mo</span></div>
+                  <div style={{display:"flex",justifyContent:"space-between",fontSize:8,color:TH.dim}}><span>0mo</span><span>{fd(efTargetMonths/2,0)}mo</span><span>{efTargetMonths}mo</span></div>
                 </div>
               </div>
               <div style={{fontSize:10,color:TH.muted,lineHeight:1.5}}>{wealthData.liquidity.verdict}</div>

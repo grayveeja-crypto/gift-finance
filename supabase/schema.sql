@@ -3,15 +3,9 @@
 
 create extension if not exists "pgcrypto";
 
--- One row per fund PER MONTH (like spending/debts), e.g. code = 'SCBRM2', month = 'Sep 2026'.
--- Logging an update inserts a new month's row rather than overwriting, so the app can chart
--- value/cost/unrealized-gain over time. The "current" figures for a fund are just its row for
--- the most recent month. (code, month) is unique so re-saving the same month corrects it
--- instead of creating a duplicate.
 create table if not exists holdings (
   id uuid primary key default gen_random_uuid(),
   code text not null,
-  month text,
   name text,
   type text not null default 'Retirement',
   cls text not null,
@@ -24,7 +18,6 @@ create table if not exists holdings (
   total_pct numeric not null default 0,
   updated_at timestamptz not null default now()
 );
-create unique index if not exists holdings_code_month_idx on holdings (code, month);
 
 -- One row per debt PER MONTH (like spending), e.g. name = 'Home Loan', month = 'Sep 2026'.
 -- Logging a balance update inserts a new month's row rather than overwriting, so the app
@@ -46,11 +39,13 @@ create table if not exists debts (
 create unique index if not exists debts_name_month_idx on debts (name, month);
 
 -- One row per month, e.g. month = 'Jul 2026'
--- gross_income / pvd_pct / pvd_employer_pct are optional (nullable): when a month hasn't set
--- them yet, the app falls back to the most recent month that has, so the Savings Rate / PVD /
--- retirement projection figures never go blank, they just stay at the last real value until
--- updated. pvd_pct is HER OWN PVD contribution rate; pvd_employer_pct is the employer match
--- rate — tracked separately since her rate rises over time while the employer's stays fixed.
+-- gross_income / pvd_pct / pvd_employer_pct / tax_bracket_pct are optional (nullable): when a
+-- month hasn't set them yet, the app falls back to the most recent month that has, so the
+-- Savings Rate / PVD / retirement projection / tax-savings figures never go blank, they just
+-- stay at the last real value until updated. pvd_pct is HER OWN PVD contribution rate;
+-- pvd_employer_pct is the employer match rate — tracked separately since her rate rises over
+-- time while the employer's stays fixed. tax_bracket_pct is her marginal Thai PIT rate, used to
+-- estimate RMF/SSF/PVD tax savings in the Wealth Analysis tab.
 create table if not exists spending (
   id uuid primary key default gen_random_uuid(),
   month text not null unique,
@@ -59,6 +54,7 @@ create table if not exists spending (
   gross_income numeric,
   pvd_pct numeric,
   pvd_employer_pct numeric,
+  tax_bracket_pct numeric,
   updated_at timestamptz not null default now()
 );
 
