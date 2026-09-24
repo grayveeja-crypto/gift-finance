@@ -192,6 +192,26 @@ function totalsAtMonths(rows, key, field, evalMonths){
   });
 }
 
+// Same as totalsAtMonths, but for a month BEFORE an entity's first logged row, uses that
+// entity's EARLIEST known value instead of 0. Used for debt in the net worth history: a debt
+// that existed before it was first logged (e.g. only Sep 2026 has a real balance) should read
+// as "that balance, not yet tracked monthly" for earlier months — not as "no debt".
+function totalsAtMonthsBackfill(rows, key, field, evalMonths){
+  const byKey = {};
+  rows.forEach(r=>{ if(!r.month) return; (byKey[r[key]]=byKey[r[key]]||[]).push(r); });
+  Object.values(byKey).forEach(arr=>arr.sort((a,b)=>monthRank(a.month)-monthRank(b.month)));
+  return evalMonths.map(m=>{
+    let total=0;
+    Object.values(byKey).forEach(arr=>{
+      if(!arr.length) return;
+      let val=arr[0][field]; // default: earliest known value (backward-fill)
+      for(const r of arr){ if(monthRank(r.month)<=monthRank(m)) val=r[field]; else break; }
+      total+=val;
+    });
+    return total;
+  });
+}
+
 function mapDebtRow(r){
   return {
     id: r.id, name: r.name, month: r.month || null, balance: pn(r.balance), rate: pn(r.rate), monthly: pn(r.monthly),
@@ -479,14 +499,22 @@ export default function App(){
     try{ return parseInt(localStorage.getItem('gf_ef_months'),10)||3; }catch{ return 3; }
   });
   const targetAlloc = FB_T;
-  // Real net worth history — every fund's value minus every debt's balance, forward-filled at
-  // each month either was logged in. Falls back to placeholder points until there's 2+ months
-  // of real Fund/Debt history to chart. Shared by the Overview sparkline+MoM delta and the
-  // Plan > Trends Net Worth Trajectory chart, instead of each computing (or faking) its own.
-  const nwMonths = Array.from(new Set([...holdingsHistory.map(h=>h.month), ...debtHistory.map(h=>h.month)].filter(Boolean)))
-    .sort((a,b)=>monthRank(a)-monthRank(b));
+  // Real net worth history — every fund's value minus every debt's balance, at each month either
+  // was logged in. Falls back to placeholder points until there's 2+ months of real history to
+  // chart. Shared by the Overview sparkline+MoM delta and the Plan > Trends Net Worth Trajectory
+  // chart, instead of each computing (or faking) its own.
+  //
+  // Funds and debts forward-fill differently before their first logged month: a fund reads as 0
+  // before it existed (correct — it genuinely wasn't held yet), but a debt reads as its EARLIEST
+  // known balance backward-filled (via totalsAtMonthsBackfill) — a debt that wasn't logged yet
+  // still existed, so earlier months shouldn't look debt-free. Debt logging started Sep 2026, so
+  // Jun-Aug currently show that same balance held flat until real monthly debt entries build up.
+  const nwMonths = Array.from(new Set([
+    ...holdingsHistory.map(h=>h.month).filter(Boolean),
+    ...debtHistory.map(h=>h.month).filter(Boolean),
+  ])).sort((a,b)=>monthRank(a)-monthRank(b));
   const nwPortfolioVals = totalsAtMonths(holdingsHistory, "code", "value", nwMonths);
-  const nwDebtVals = totalsAtMonths(debtHistory, "name", "balance", nwMonths);
+  const nwDebtVals = totalsAtMonthsBackfill(debtHistory, "name", "balance", nwMonths);
   const history = nwMonths.length>=2
     ? nwMonths.map((m,i)=>({ m:m.replace(" 2026",""), portfolio:nwPortfolioVals[i], debt:nwDebtVals[i], nw:nwPortfolioVals[i]-nwDebtVals[i] }))
     : FB_HIST;
