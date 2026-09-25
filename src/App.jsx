@@ -17,6 +17,13 @@ const LIGHT_T = {
 };
 const card = { background:T.surf, border:`1px solid ${T.border}`, borderRadius:18, padding:"14px 15px" };
 
+// ─── LAST-RESORT DEFAULTS ────────────────────────────────────────────────────
+// Used only when a month has no real budget/gross-income logged AND no earlier month does
+// either (i.e. `latestBudget`/`latestGrossIncome` both come back null) — a single named
+// constant instead of the same magic number typed in ~15 places across the file.
+const DEFAULT_GROSS_INCOME = 88733;
+const DEFAULT_BUDGET = 70400;
+
 // ─── FALLBACK DATA ────────────────────────────────────────────────────────────
 const FB_H = [
   { code:"SCBRM2",           name:"SCB RMF Thai Equity",    type:"Personal",   cls:"Thai Equity",   value:17023.16,  cost:15000,     nav:15.8149, navPrev:15.3027, dailyPct:3.26,  totalPct:13.49, units:1076.40  },
@@ -412,7 +419,10 @@ function AIPanel({open,onClose,holdings,debts,spendingMonths,darkMode}){
   const total=holdings.reduce((s,h)=>s+h.value,0);
   const debt=debts.reduce((s,d)=>s+d.balance,0);
   const latest=spendingMonths[spendingMonths.length-1];
-  const ctx=`Gift's Portfolio May 2026: Total ${fmt(total)}, Net Worth ${fmt(total-debt)}, Debt ${fmt(debt)}. Holdings: ${holdings.map(h=>`${h.code}(${h.cls}) ${fmt(h.value)} ${sgn(h.dailyPct)}${fd(h.dailyPct)}% daily`).join("; ")}. Latest spend (${latest?.m}): ${fmt(latest?.spent||0)} vs budget ${fmt(latest?.budget||70400)}.`;
+  // Most recent real budget logged (same forward-fill as the main app's latestBudget) — this
+  // panel gets spendingMonths as its own prop, not the outer scope, so it needs its own copy.
+  const latestBudgetAI=(()=>{ for(let i=spendingMonths.length-1;i>=0;i--){ if(spendingMonths[i].budget) return spendingMonths[i].budget; } return null; })();
+  const ctx=`Gift's Portfolio May 2026: Total ${fmt(total)}, Net Worth ${fmt(total-debt)}, Debt ${fmt(debt)}. Holdings: ${holdings.map(h=>`${h.code}(${h.cls}) ${fmt(h.value)} ${sgn(h.dailyPct)}${fd(h.dailyPct)}% daily`).join("; ")}. Latest spend (${latest?.m}): ${fmt(latest?.spent||0)} vs budget ${fmt(latest?.budget||latestBudgetAI||DEFAULT_BUDGET)}.`;
   const send=async text=>{
     const msg=text||inp; if(!msg.trim()||busy) return;
     const nm=[...msgs,{r:"u",t:msg}]; setMsgs(nm); setInp(""); setBusy(true);
@@ -493,12 +503,13 @@ export default function App(){
   const [holdingsHistory,setHoldingsHistory]=useState([]); // every logged month, for the value/gain trend
   const [debts,setDebts]=useState(FB_D); // latest month per debt name — used everywhere as "current" debt
   const [debtHistory,setDebtHistory]=useState([]); // every logged month, for the payoff trend + month picker
+  const [targetAllocDB,setTargetAllocDB]=useState([]); // her real saved target allocation, from Supabase; empty until she's saved one (or the table doesn't exist yet), in which case targetAlloc below falls back to FB_T
   // Emergency-fund target, in months of real average spend — her own choice (Wealth > Liquidity
   // lets her change it), remembered locally per device like the profile photo.
   const [efTargetMonths,setEfTargetMonths]=useState(()=>{
     try{ return parseInt(localStorage.getItem('gf_ef_months'),10)||3; }catch{ return 3; }
   });
-  const targetAlloc = FB_T;
+  const targetAlloc = targetAllocDB.length ? targetAllocDB : FB_T; // real saved targets once she's set them; FB_T is just the starting default
   // Real net worth history — every fund's value minus every debt's balance, at each month either
   // was logged in. Falls back to placeholder points until there's 2+ months of real history to
   // chart. Shared by the Overview sparkline+MoM delta and the Plan > Trends Net Worth Trajectory
@@ -537,6 +548,11 @@ export default function App(){
   // the hardcoded default. Employee & employer PVD% are tracked separately since they diverge
   // (her contribution rises over time; the employer match rate stays fixed).
   const latestGrossIncome = (()=>{ for(let i=spendingMonths.length-1;i>=0;i--){ if(spendingMonths[i].grossIncome) return spendingMonths[i].grossIncome; } return null; })();
+  // Most recent REAL budget she's logged, same forward-fill pattern as latestGrossIncome above —
+  // used instead of jumping straight to the hardcoded 70400 default whenever a given month's
+  // budget field is unset, so a month you haven't set a budget for still shows your real recent
+  // budget rather than a stale placeholder number.
+  const latestBudget = (()=>{ for(let i=spendingMonths.length-1;i>=0;i--){ if(spendingMonths[i].budget) return spendingMonths[i].budget; } return null; })();
   const latestEmployeePvdPct = (()=>{ for(let i=spendingMonths.length-1;i>=0;i--){ if(spendingMonths[i].pvdEmployeePct!=null) return spendingMonths[i].pvdEmployeePct; } return null; })();
   const latestEmployerPvdPct = (()=>{ for(let i=spendingMonths.length-1;i>=0;i--){ if(spendingMonths[i].pvdEmployerPct!=null) return spendingMonths[i].pvdEmployerPct; } return null; })();
   const latestTaxBracketPct  = (()=>{ for(let i=spendingMonths.length-1;i>=0;i--){ if(spendingMonths[i].taxBracketPct!=null) return spendingMonths[i].taxBracketPct; } return null; })();
@@ -548,7 +564,7 @@ export default function App(){
     const real = spendingMonths.filter(m=>m.grossIncome||m.pvdEmployeePct!=null||(m.transactions&&m.transactions.length>0));
     if(!real.length) return null;
     const total = real.reduce((s,m)=>{
-      const g = m.grossIncome || latestGrossIncome || 88733;
+      const g = m.grossIncome || latestGrossIncome || DEFAULT_GROSS_INCOME;
       const pe = m.pvdEmployeePct!=null ? m.pvdEmployeePct : (latestEmployeePvdPct!=null ? latestEmployeePvdPct : 12);
       const pr = m.pvdEmployerPct!=null ? m.pvdEmployerPct : (latestEmployerPvdPct!=null ? latestEmployerPvdPct : 12);
       const pvd = g*(pe+pr)/100;
@@ -628,6 +644,33 @@ export default function App(){
     }catch(e){
       setFundFormStatus("error");
       setTimeout(()=>setFundFormStatus(null),3000);
+    }
+  }
+
+  // ─── TARGET ALLOCATION EDITOR (upserts into the target_allocation table) ─────────────
+  // Standing tab page (investSubTab==="edittargets"), same pattern as Log Fund / Edit Income.
+  const [targetForm,setTargetForm]=useState([]); // [{cls,target}], target as editable strings
+  const [targetFormStatus,setTargetFormStatus]=useState(null); // null | "saving" | "success" | "error"
+  function openEditTargets(){
+    setTargetForm(targetAlloc.map(t=>({cls:t.cls, target:String(t.target)})));
+    setTargetFormStatus(null);
+    setTab("investments"); setInvestSubTab("edittargets");
+  }
+  async function submitTargets(){
+    const rows = targetForm
+      .map(t=>({cls:t.cls, target:parseFloat(t.target)||0}))
+      .filter(t=>t.cls);
+    if(!rows.length) return;
+    setTargetFormStatus("saving");
+    try{
+      const { error } = await supabase.from("target_allocation").upsert(rows, { onConflict: "cls" });
+      if(error) throw error;
+      setTargetFormStatus("success");
+      setTimeout(()=>{setTargetFormStatus(null); setInvestSubTab(null);},1000);
+      fetchAll(true);
+    }catch(e){
+      setTargetFormStatus("error");
+      setTimeout(()=>setTargetFormStatus(null),3000);
     }
   }
 
@@ -885,6 +928,11 @@ export default function App(){
       }
     }catch(e){setPortErr(p=>p||String(e.message||e));}
     try{
+      const { data, error } = await supabase.from("target_allocation").select("*");
+      if(error) throw error;
+      if(data?.length) setTargetAllocDB(data.map(r=>({cls:r.cls, target:pn(r.target)})));
+    }catch(e){ /* table may not exist yet (migration not run) — targetAlloc below just falls back to FB_T */ }
+    try{
       const [{ data: spendRows, error: spendErr }, { data: txnRows, error: txnErr }] = await Promise.all([
         supabase.from("spending").select("*"),
         supabase.from("transactions").select("*").order("date",{ascending:true}),
@@ -1018,6 +1066,12 @@ export default function App(){
   // Changing the emergency-fund target (Wealth > Liquidity) re-runs the analysis so the
   // Liquidity grade/verdict reflect the new target immediately instead of going stale.
   useEffect(()=>{ if(wealthData) runWealthAnalysis(); },[efTargetMonths]);
+  // Auto-run the Wealth Analysis once, right after the initial data load finishes, so the real
+  // score/grades exist wherever they're shown (Goals screen, Plan hub) without making her open
+  // the Wealth Analysis tab and tap "Run Full Analysis" first. Only fires on the initial load
+  // (loading flips true→false once) — background silent refreshes don't touch `loading`, and
+  // she can always tap "Run Full Analysis" again for an explicit recompute.
+  useEffect(()=>{ if(!loading && !wealthData && !wealthLoading) runWealthAnalysis(); },[loading]);
   useEffect(()=>{const t=setInterval(()=>fetchAll(true),5*60*1000);return()=>clearInterval(t);},[fetchAll]);
   useEffect(()=>{setSelMonth(spendingMonths.length-1);},[spendingMonths.length]);
 
@@ -1068,7 +1122,7 @@ export default function App(){
   // Includes: spending sheet savings categories + PVD employee % (deducted from gross)
   // Gross income & PVD% now live per-month from Supabase (spending.gross_income / spending.pvd_pct),
   // falling back to the last known real figures if a month hasn't set them yet.
-  const GROSS_INCOME      = CM.grossIncome || latestGrossIncome || 88733;
+  const GROSS_INCOME      = CM.grossIncome || latestGrossIncome || DEFAULT_GROSS_INCOME;
   const PVD_EMPLOYEE_PCT  = CM.pvdEmployeePct!=null ? CM.pvdEmployeePct : (latestEmployeePvdPct!=null ? latestEmployeePvdPct : 12);
   const PVD_EMPLOYER_PCT  = CM.pvdEmployerPct!=null ? CM.pvdEmployerPct : (latestEmployerPvdPct!=null ? latestEmployerPvdPct : 12);
   const TAX_BRACKET_PCT   = CM.taxBracketPct!=null ? CM.taxBracketPct : (latestTaxBracketPct!=null ? latestTaxBracketPct : 15);
@@ -1144,17 +1198,20 @@ export default function App(){
     const selA = ALLOC.find(a=>a.cls===selAlloc);
     const CAT_DATA_D = Object.entries(CM.cats&&Object.keys(CM.cats).length>0?CM.cats:(CM.transactions||[]).reduce((acc,t)=>{acc[t.cat]=(acc[t.cat]||0)+t.amount;return acc;},{})).filter(([,v])=>v>0).map(([k,v])=>({name:k,v})).sort((a,b)=>b.v-a.v);
     const dcStyle = { background:darkMode?"rgba(255,255,255,0.04)":"rgba(0,0,0,0.04)", border:`1px solid ${TH.border}`, borderRadius:16, padding:"16px 18px" };
-    const nwHistory = [{m:"May",nw:738364},{m:"Jun",nw:834563},{m:"Jul",nw:900000}];
-    const spendTrend = spendingMonths.map(sm=>{ const cats=sm.cats||{}; return {m:sm.m.replace(" 2026",""),Food:Math.round(cats["Food"]||0),Gas:Math.round(cats["Gas"]||0),Misc:Math.round(cats["Misc"]||0),Cat:Math.round(cats["Cat"]||0),Total:Math.round(sm.spent||0),Budget:Math.round(sm.budget||70400)}; });
+    const nwHistory = history; // real net worth history (see the shared `history` computation above) — desktop was still on 3 fake hardcoded points
+    const spendTrend = spendingMonths.map(sm=>{ const cats=sm.cats||{}; return {m:sm.m.replace(" 2026",""),Food:Math.round(cats["Food"]||0),Gas:Math.round(cats["Gas"]||0),Misc:Math.round(cats["Misc"]||0),Cat:Math.round(cats["Cat"]||0),Total:Math.round(sm.spent||0),Budget:Math.round(sm.budget||latestBudget||DEFAULT_BUDGET)}; });
     const projBase = TOTAL-DEBT || 1640385;
     const projMonthly = liveMonthlyContribution || 30000;
     const projData = Array.from({length:17},(_,i)=>({year:(2026+i).toString(),Conservative:Math.round((projBase+projMonthly*12*i)*Math.pow(1.04,i)),Moderate:Math.round((projBase+projMonthly*12*i)*Math.pow(1.06,i)),Optimistic:Math.round((projBase+projMonthly*12*i)*Math.pow(1.08,i))}));
     const projFinal = projData[projData.length-1];
-    const milestoneYear = (key)=>{ const hit=projData.find(p=>p[key]>=5000000); return hit?hit.year:null; };
+    const milestoneYear = (key,target=5000000)=>{ const hit=projData.find(p=>p[key]>=target); return hit?hit.year:null; };
     const pctToMilestone = Math.min(100, projBase/5000000*100);
+    // Real ETA for a milestone target, off the same Moderate-return projection used everywhere
+    // else on this screen — replaces the old hand-typed "~2026/~2033/~2042" guesses.
+    const milestoneEst = (target)=> projBase>=target ? "Reached" : (milestoneYear("Moderate",target)?`~${milestoneYear("Moderate",target)}`:`beyond ${projFinal.year}`);
     const savingsRateData = spendingMonths.map(sm=>{
       const saved=(sm.transactions||[]).filter(t=>["Emergency","Japan Fund","Retirement"].includes(t.cat)).reduce((s,t)=>s+t.amount,0);
-      const g = sm.grossIncome || latestGrossIncome || 88733;
+      const g = sm.grossIncome || latestGrossIncome || DEFAULT_GROSS_INCOME;
       const p = sm.pvdEmployeePct!=null ? sm.pvdEmployeePct : (latestEmployeePvdPct!=null ? latestEmployeePvdPct : 12);
       return {m:sm.m.replace(" 2026",""),rate:Math.round((saved+g*p/100)/g*100)};
     });
@@ -1355,8 +1412,8 @@ export default function App(){
                     </div>
                     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:12}}>
                       {[
-                        {l:"Spent",  v:CM.spent,             c:CM.spent>(CM.budget||70400)?TH.red:TH.green},
-                        {l:"Budget", v:CM.budget||70400,     c:TH.accent2},
+                        {l:"Spent",  v:CM.spent,             c:CM.spent>(CM.budget||latestBudget||DEFAULT_BUDGET)?TH.red:TH.green},
+                        {l:"Budget", v:CM.budget||latestBudget||DEFAULT_BUDGET,     c:TH.accent2},
                         {l:"Saved",  v:INCOME-(CM.spent||0), c:INCOME-(CM.spent||0)>=0?TH.green:TH.red},
                       ].map((s,i)=>(
                         <div key={i} style={{textAlign:"center",padding:"10px 8px",background:TH.surf,borderRadius:10,border:`1px solid ${TH.border}`}}>
@@ -1367,7 +1424,7 @@ export default function App(){
                     </div>
                     {/* Budget bar */}
                     <div style={{height:6,background:darkMode?"rgba(255,255,255,0.07)":"rgba(0,0,0,0.07)",borderRadius:999,overflow:"hidden",marginBottom:8}}>
-                      <div style={{height:"100%",width:`${Math.min(CM.spent/(CM.budget||70400)*100,100)}%`,background:CM.spent>(CM.budget||70400)?"linear-gradient(90deg,#F87171,#DC2626)":"linear-gradient(90deg,#6366F1,#38BDF8)",borderRadius:999}}/>
+                      <div style={{height:"100%",width:`${Math.min(CM.spent/(CM.budget||latestBudget||DEFAULT_BUDGET)*100,100)}%`,background:CM.spent>(CM.budget||latestBudget||DEFAULT_BUDGET)?"linear-gradient(90deg,#F87171,#DC2626)":"linear-gradient(90deg,#6366F1,#38BDF8)",borderRadius:999}}/>
                     </div>
                     {/* Top categories */}
                     {CAT_DATA_D.slice(0,5).map((c,i)=>{
@@ -1604,7 +1661,7 @@ export default function App(){
                     </div>
                   </div>
                   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:12}}>
-                    {[{l:"Spent",v:CM.spent,c:CM.spent>(CM.budget||70400)?TH.red:TH.green},{l:"Budget",v:CM.budget||70400,c:TH.accent2},{l:"Saved",v:INCOME-(CM.spent||0),c:INCOME-(CM.spent||0)>=0?TH.green:TH.red}].map((s,i)=>(
+                    {[{l:"Spent",v:CM.spent,c:CM.spent>(CM.budget||latestBudget||DEFAULT_BUDGET)?TH.red:TH.green},{l:"Budget",v:CM.budget||latestBudget||DEFAULT_BUDGET,c:TH.accent2},{l:"Saved",v:INCOME-(CM.spent||0),c:INCOME-(CM.spent||0)>=0?TH.green:TH.red}].map((s,i)=>(
                       <div key={i} style={{textAlign:"center",padding:"10px 8px",background:TH.surf,borderRadius:10,border:`1px solid ${TH.border}`}}>
                         <div style={{fontSize:9,color:TH.muted,textTransform:"uppercase",marginBottom:4}}>{s.l}</div>
                         <div style={{fontSize:15,fontWeight:800,color:s.c,fontFamily:TH.mono}}>{s.v<0?"-":""}{fmt(Math.abs(s.v))}</div>
@@ -1612,7 +1669,7 @@ export default function App(){
                     ))}
                   </div>
                   <div style={{height:6,background:darkMode?"rgba(255,255,255,0.07)":"rgba(0,0,0,0.07)",borderRadius:999,overflow:"hidden",marginBottom:12}}>
-                    <div style={{height:"100%",width:`${Math.min(CM.spent/(CM.budget||70400)*100,100)}%`,background:CM.spent>(CM.budget||70400)?"linear-gradient(90deg,#F87171,#DC2626)":"linear-gradient(90deg,#6366F1,#38BDF8)",borderRadius:999}}/>
+                    <div style={{height:"100%",width:`${Math.min(CM.spent/(CM.budget||latestBudget||DEFAULT_BUDGET)*100,100)}%`,background:CM.spent>(CM.budget||latestBudget||DEFAULT_BUDGET)?"linear-gradient(90deg,#F87171,#DC2626)":"linear-gradient(90deg,#6366F1,#38BDF8)",borderRadius:999}}/>
                   </div>
                   {/* Donut + categories */}
                   <div style={{display:"flex",alignItems:"flex-start",gap:16}}>
@@ -1718,7 +1775,7 @@ export default function App(){
                   <div style={{fontSize:12,fontWeight:700,color:TH.text,marginBottom:10}}>Spending Trend</div>
                   <ResponsiveContainer width="100%" height={110}>
                     <AreaChart
-                      data={spendingMonths.map(m=>({month:m.m.split(" ")[0],spent:m.spent,budget:m.budget||70400}))}
+                      data={spendingMonths.map(m=>({month:m.m.split(" ")[0],spent:m.spent,budget:m.budget||latestBudget||DEFAULT_BUDGET}))}
                       margin={{top:4,right:4,left:-20,bottom:0}}
                     >
                       <defs>
@@ -1843,10 +1900,10 @@ export default function App(){
                 </div>
                 <div style={{...dcStyle,background:"linear-gradient(135deg,rgba(99,102,241,0.1),rgba(56,189,248,0.06))"}}>
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                    <div><div style={{fontSize:9,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".07em",marginBottom:5}}>Financial Health</div><div style={{fontSize:40,fontWeight:900,letterSpacing:"-2px",background:"linear-gradient(135deg,#818CF8,#38BDF8)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",lineHeight:1}}>78</div><div style={{fontSize:10,color:TH.muted,marginTop:3}}>Good · 2 items need attention</div></div>
+                    <div><div style={{fontSize:9,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".07em",marginBottom:5}}>Financial Health</div><div style={{fontSize:40,fontWeight:900,letterSpacing:"-2px",background:"linear-gradient(135deg,#818CF8,#38BDF8)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",lineHeight:1}}>{wealthData?wealthData.score:"—"}</div><div style={{fontSize:10,color:TH.muted,marginTop:3}}>{wealthData?wealthData.scoreLabel:"Analysing…"}</div></div>
                     <div style={{fontSize:36}}>💎</div>
                   </div>
-                  <div style={{height:4,background:darkMode?"rgba(255,255,255,0.07)":"rgba(0,0,0,0.07)",borderRadius:999,marginTop:12,overflow:"hidden"}}><div style={{height:"100%",width:"78%",background:"linear-gradient(90deg,#6366F1,#38BDF8)",borderRadius:999}}/></div>
+                  <div style={{height:4,background:darkMode?"rgba(255,255,255,0.07)":"rgba(0,0,0,0.07)",borderRadius:999,marginTop:12,overflow:"hidden"}}><div style={{height:"100%",width:`${wealthData?wealthData.score:0}%`,background:"linear-gradient(90deg,#6366F1,#38BDF8)",borderRadius:999}}/></div>
                 </div>
                 <div style={dcStyle}>
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
@@ -2100,13 +2157,15 @@ export default function App(){
                 {/* Milestone Tracker */}
                 <div style={dcStyle}>
                   <div style={{fontSize:13,fontWeight:700,marginBottom:12}}>Milestone Tracker</div>
-                  {[{label:"฿1M Net Worth",target:1000000,current:TOTAL-DEBT,est:"~2026",c:"#FBBF24"},{label:"฿5M Portfolio",target:5000000,current:TOTAL,est:"~2033",c:"#6366F1"},{label:"฿20M Retirement",target:20000000,current:TOTAL,est:"~2042",c:"#4ADE80"}].map((ms,i)=>{
+                  {[{label:"฿1M Net Worth",target:1000000,current:TOTAL-DEBT,c:"#FBBF24"},{label:"฿5M Portfolio",target:5000000,current:TOTAL,c:"#6366F1"},{label:"฿20M Retirement",target:20000000,current:TOTAL,c:"#4ADE80"}].map((ms,i)=>{
                     const pct=Math.min(100,ms.current/ms.target*100);
+                    const done=ms.current>=ms.target;
+                    const est=milestoneEst(ms.target);
                     return(
                       <div key={i} style={{marginBottom:i<2?16:0}}>
                         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
-                          <span style={{fontSize:11,fontWeight:700,color:TH.text2}}>🎯 {ms.label}</span>
-                          <div style={{textAlign:"right"}}><span style={{fontSize:11,fontWeight:700,color:ms.c,fontFamily:TH.mono}}>{pct.toFixed(1)}%</span><div style={{fontSize:9,color:TH.muted}}>est. {ms.est}</div></div>
+                          <span style={{fontSize:11,fontWeight:700,color:TH.text2}}>{done?"✅":"🎯"} {ms.label}</span>
+                          <div style={{textAlign:"right"}}><span style={{fontSize:11,fontWeight:700,color:ms.c,fontFamily:TH.mono}}>{pct.toFixed(1)}%</span><div style={{fontSize:9,color:TH.muted}}>{done?"":"est. "}{est}</div></div>
                         </div>
                         <div style={{height:6,background:`${ms.c}15`,borderRadius:999,overflow:"hidden"}}><div style={{height:"100%",width:`${pct}%`,background:ms.c,borderRadius:999}}/></div>
                         <div style={{display:"flex",justifyContent:"space-between",fontSize:8,color:TH.muted,marginTop:2}}><span>฿{(ms.current/1000000).toFixed(2)}M</span><span>฿{(ms.target/1000000).toFixed(0)}M</span></div>
@@ -2639,8 +2698,11 @@ export default function App(){
 
           {investSubTab==="rebalance"&&(<>
           <div style={cardStyle}>
-            <div style={{fontSize:12,fontWeight:700,marginBottom:4}}>Target vs Actual</div>
-            <div style={{fontSize:10,color:TH.muted,marginBottom:12}}>Based on TargetAllocation sheet</div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:4}}>
+              <div style={{fontSize:12,fontWeight:700}}>Target vs Actual</div>
+              <button onClick={openEditTargets} style={{width:22,height:22,borderRadius:7,background:"transparent",border:`1px solid ${TH.border}`,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",padding:0,flexShrink:0}}><Pencil size={11} color={TH.muted}/></button>
+            </div>
+            <div style={{fontSize:10,color:TH.muted,marginBottom:12}}>{targetAllocDB.length?"Your saved targets":"Default targets — tap ✎ to set your own"}</div>
             {REBAL.map((r,i)=>{
               const sc=Math.abs(r.diff)>=3?"#FBBF24":r.diff===0?TH.green:TH.inactive;
               return(
@@ -2856,6 +2918,48 @@ export default function App(){
             </div>
             );
           })()}
+
+          {investSubTab==="edittargets"&&(()=>{
+            const sum = targetForm.reduce((s,t)=>s+(parseFloat(t.target)||0),0);
+            const canSave = targetForm.length>0;
+            return(
+            <div style={cardStyle}>
+              <div style={{marginBottom:16}}>
+                <div style={{fontSize:15,fontWeight:800,color:TH.text}}>Edit Target Allocation</div>
+                <div style={{fontSize:11,color:TH.muted}}>Your target split by asset class — drives the Rebalancing diffs and the Allocation score in Wealth Analysis</div>
+              </div>
+              {targetForm.map((t,i)=>(
+                <div key={t.cls} style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
+                  <div style={{display:"flex",alignItems:"center",gap:6,flex:1,minWidth:0}}>
+                    <div style={{width:6,height:6,borderRadius:"50%",background:CLS_COLOR[t.cls]||TH.accent,flexShrink:0}}/>
+                    <span style={{fontSize:12,color:TH.text2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.cls}</span>
+                  </div>
+                  <div style={{display:"flex",alignItems:"center",gap:4,flexShrink:0}}>
+                    <input type="number" min="0" max="100" step="1" inputMode="decimal" value={t.target}
+                      onChange={e=>setTargetForm(f=>f.map((x,j)=>j===i?{...x,target:e.target.value}:x))}
+                      style={{width:56,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:10,padding:"8px 9px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit",textAlign:"right",boxSizing:"border-box"}}/>
+                    <span style={{fontSize:12,color:TH.muted}}>%</span>
+                  </div>
+                </div>
+              ))}
+              <div style={{display:"flex",justifyContent:"space-between",padding:"8px 10px",background:Math.abs(sum-100)<0.5?"rgba(74,222,128,0.08)":"rgba(251,191,36,0.08)",borderRadius:10,marginBottom:14}}>
+                <span style={{fontSize:10,color:TH.muted}}>Total</span>
+                <span style={{fontSize:11,fontWeight:700,color:Math.abs(sum-100)<0.5?TH.green:TH.gold,fontFamily:TH.mono}}>{sum.toFixed(1)}%{Math.abs(sum-100)>=0.5?" — doesn't add up to 100%":""}</span>
+              </div>
+
+              {targetFormStatus==="saving"&&<div style={{textAlign:"center",fontSize:12,color:TH.muted,marginBottom:10}}>Saving…</div>}
+              {targetFormStatus==="success"&&<div style={{textAlign:"center",fontSize:12,color:"#4ADE80",marginBottom:10}}>✓ Saved!</div>}
+              {targetFormStatus==="error"&&<div style={{textAlign:"center",fontSize:12,color:"#F87171",marginBottom:10}}>Failed to save — check connection</div>}
+
+              <button
+                onClick={submitTargets}
+                disabled={!canSave||targetFormStatus==="saving"}
+                style={{width:"100%",padding:14,borderRadius:12,fontWeight:700,fontSize:13,background:canSave?"linear-gradient(135deg,#6366F1,#38BDF8)":"rgba(255,255,255,0.06)",border:"none",color:canSave?"white":"#4B5563",cursor:canSave?"pointer":"default"}}>
+                Save Targets
+              </button>
+            </div>
+            );
+          })()}
           </>
           )}
         </div>)}
@@ -2878,7 +2982,7 @@ export default function App(){
                 <div style={{width:44,height:44,borderRadius:12,background:"rgba(56,189,248,0.12)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>📊</div>
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{fontSize:13,fontWeight:700,color:TH.text}}>Summary</div>
-                  <div style={{fontSize:11,color:TH.muted,marginTop:2}}>{fmt(CM.spent)} spent · {Math.round(CM.spent/(CM.budget||70400)*100)}% of budget</div>
+                  <div style={{fontSize:11,color:TH.muted,marginTop:2}}>{fmt(CM.spent)} spent · {Math.round(CM.spent/(CM.budget||latestBudget||DEFAULT_BUDGET)*100)}% of budget</div>
                 </div>
                 <ChevronRight size={16} color={TH.dim}/>
               </div>
@@ -2908,14 +3012,14 @@ export default function App(){
           {spendSubTab==="summary"&&(<>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
             {[
-              {l:"Spent",  v:CM.spent,            c:CM.spent>(CM.budget||70400)?TH.red:TH.green},
-              {l:"Budget", v:CM.budget||70400,     c:TH.accent2},
+              {l:"Spent",  v:CM.spent,            c:CM.spent>(CM.budget||latestBudget||DEFAULT_BUDGET)?TH.red:TH.green},
+              {l:"Budget", v:CM.budget||latestBudget||DEFAULT_BUDGET,     c:TH.accent2},
               {l:"Saved",  v:INCOME-(CM.spent||0), c:INCOME-(CM.spent||0)>=0?TH.green:TH.red},
             ].map((s,i)=>(
               <div key={i} style={{...card,textAlign:"center",padding:"12px 10px"}}>
                 <div style={{fontSize:9,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".06em",marginBottom:4}}>{s.l}</div>
                 <div style={{fontSize:14,fontWeight:800,color:s.c,fontFamily:TH.mono}}>{s.v<0?"-":""}{fmt(Math.abs(s.v))}</div>
-                {i===0&&<div style={{fontSize:8,color:CM.spent>(CM.budget||70400)?TH.red:TH.green,marginTop:2,fontWeight:600}}>{CM.spent>(CM.budget||70400)?"OVER":"UNDER"}</div>}
+                {i===0&&<div style={{fontSize:8,color:CM.spent>(CM.budget||latestBudget||DEFAULT_BUDGET)?TH.red:TH.green,marginTop:2,fontWeight:600}}>{CM.spent>(CM.budget||latestBudget||DEFAULT_BUDGET)?"OVER":"UNDER"}</div>}
               </div>
             ))}
           </div>
@@ -2938,12 +3042,12 @@ export default function App(){
           <div style={cardStyle}>
             <div style={{display:"flex",justifyContent:"space-between",marginBottom:7}}>
               <span style={{fontSize:11,fontWeight:700}}>Budget Usage</span>
-              <span style={{fontSize:11,fontWeight:800,color:CM.spent>(CM.budget||70400)?TH.red:TH.green,fontFamily:TH.mono}}>{Math.round(CM.spent/(CM.budget||70400)*100)}%</span>
+              <span style={{fontSize:11,fontWeight:800,color:CM.spent>(CM.budget||latestBudget||DEFAULT_BUDGET)?TH.red:TH.green,fontFamily:TH.mono}}>{Math.round(CM.spent/(CM.budget||latestBudget||DEFAULT_BUDGET)*100)}%</span>
             </div>
             <div style={{height:8,background:darkMode?"rgba(255,255,255,0.07)":"rgba(0,0,0,0.07)",borderRadius:999,overflow:"hidden"}}>
-              <div style={{height:"100%",width:`${Math.min(CM.spent/(CM.budget||70400)*100,100)}%`,background:CM.spent>(CM.budget||70400)?"linear-gradient(90deg,#F87171,#DC2626)":"linear-gradient(90deg,#6366F1,#38BDF8)",borderRadius:999,transition:"width 1s ease"}}/>
+              <div style={{height:"100%",width:`${Math.min(CM.spent/(CM.budget||latestBudget||DEFAULT_BUDGET)*100,100)}%`,background:CM.spent>(CM.budget||latestBudget||DEFAULT_BUDGET)?"linear-gradient(90deg,#F87171,#DC2626)":"linear-gradient(90deg,#6366F1,#38BDF8)",borderRadius:999,transition:"width 1s ease"}}/>
             </div>
-            <div style={{display:"flex",justifyContent:"space-between",fontSize:9,color:TH.muted,marginTop:5}}><span>฿0</span><span>{fmt(CM.budget||70400)}</span></div>
+            <div style={{display:"flex",justifyContent:"space-between",fontSize:9,color:TH.muted,marginTop:5}}><span>฿0</span><span>{fmt(CM.budget||latestBudget||DEFAULT_BUDGET)}</span></div>
           </div>
 
           <div style={cardStyle}>
@@ -3271,8 +3375,11 @@ export default function App(){
             return { year:label, Conservative:calc(0.04), Moderate:calc(0.06), Optimistic:calc(0.08) };
           });
           const projFinal = projData[projData.length-1];
-          const milestoneYear = (key)=>{ const hit=projData.find(p=>p[key]>=5000000); return hit?hit.year:null; };
+          const milestoneYear = (key,target=5000000)=>{ const hit=projData.find(p=>p[key]>=target); return hit?hit.year:null; };
           const pctToMilestone = Math.min(100, currentPF/5000000*100);
+          // Real ETA for a milestone target, off the same Moderate-return projection used everywhere
+          // else on this screen — replaces the old hand-typed "~2026/~2033/~2042" guesses.
+          const milestoneEst = (target)=> currentPF>=target ? "Reached" : (milestoneYear("Moderate",target)?`~${milestoneYear("Moderate",target)}`:`beyond ${projFinal.year}`);
 
           // Net worth history — computed once at the top of the component (shared with the
           // Overview sparkline + MoM delta) so this chart and that one never drift apart.
@@ -3288,7 +3395,7 @@ export default function App(){
               Misc:   Math.round(cats["Misc"]||0),
               Cat:    Math.round(cats["Cat"]||0),
               Total:  Math.round(sm.spent||0),
-              Budget: Math.round(sm.budget||70400),
+              Budget: Math.round(sm.budget||latestBudget||DEFAULT_BUDGET),
             };
           });
 
@@ -3296,7 +3403,7 @@ export default function App(){
           const savingsRateData = spendingMonths.map(sm=>{
             const savCats = ["Emergency","Japan Fund","Retirement"];
             const saved = (sm.transactions||[]).filter(t=>savCats.includes(t.cat)).reduce((s,t)=>s+t.amount,0);
-            const gross = sm.grossIncome || latestGrossIncome || 88733;
+            const gross = sm.grossIncome || latestGrossIncome || DEFAULT_GROSS_INCOME;
             const pvdPctM = sm.pvdEmployeePct!=null ? sm.pvdEmployeePct : (latestEmployeePvdPct!=null ? latestEmployeePvdPct : 12);
             const pvd = gross*pvdPctM/100;
             return { m: sm.m.replace(" 2026",""), rate: Math.round((saved+pvd)/gross*100) };
@@ -3311,7 +3418,7 @@ export default function App(){
                 <div style={{width:44,height:44,borderRadius:12,background:"rgba(129,140,248,0.12)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>💎</div>
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{fontSize:13,fontWeight:700,color:TH.text}}>Goals</div>
-                  <div style={{fontSize:11,color:TH.muted,marginTop:2}}>Financial health 78 · Good</div>
+                  <div style={{fontSize:11,color:TH.muted,marginTop:2}}>{wealthData?`Financial health ${wealthData.score} · ${wealthData.scoreLabel.split(" · ")[0]}`:"Financial health — analysing…"}</div>
                 </div>
                 <ChevronRight size={16} color={TH.dim}/>
               </div>
@@ -3369,12 +3476,12 @@ export default function App(){
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
               <div>
                 <div style={{fontSize:9,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".07em",marginBottom:5}}>Financial Health</div>
-                <div style={{fontSize:46,fontWeight:900,letterSpacing:"-3px",background:"linear-gradient(135deg,#818CF8,#38BDF8)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",lineHeight:1}}>78</div>
-                <div style={{fontSize:11,color:TH.muted,marginTop:4}}>Good · 2 items need attention</div>
+                <div style={{fontSize:46,fontWeight:900,letterSpacing:"-3px",background:"linear-gradient(135deg,#818CF8,#38BDF8)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",lineHeight:1}}>{wealthData?wealthData.score:"—"}</div>
+                <div style={{fontSize:11,color:TH.muted,marginTop:4}}>{wealthData?wealthData.scoreLabel:"Analysing…"}</div>
               </div>
               <div style={{fontSize:44}}>💎</div>
             </div>
-            <div style={{height:5,background:darkMode?"rgba(255,255,255,0.07)":"rgba(0,0,0,0.07)",borderRadius:999,marginTop:14,overflow:"hidden"}}><div style={{height:"100%",width:"78%",background:"linear-gradient(90deg,#6366F1,#38BDF8)",borderRadius:999}}/></div>
+            <div style={{height:5,background:darkMode?"rgba(255,255,255,0.07)":"rgba(0,0,0,0.07)",borderRadius:999,marginTop:14,overflow:"hidden"}}><div style={{height:"100%",width:`${wealthData?wealthData.score:0}%`,background:"linear-gradient(90deg,#6366F1,#38BDF8)",borderRadius:999}}/></div>
           </div>
 
           <div style={cardStyle}>
@@ -3797,22 +3904,24 @@ export default function App(){
           <div style={cardStyle}>
             <div style={{fontSize:12,fontWeight:700,marginBottom:12}}>Milestone Tracker</div>
             {[
-              {label:"฿1M Net Worth",   target:1000000,  current:TOTAL-DEBT, done:false, est:"~2026"},
-              {label:"฿5M Portfolio",   target:5000000,  current:TOTAL,      done:false, est:"~2033"},
-              {label:"฿20M Retirement", target:20000000, current:TOTAL,      done:false, est:"~2042"},
+              {label:"฿1M Net Worth",   target:1000000,  current:TOTAL-DEBT},
+              {label:"฿5M Portfolio",   target:5000000,  current:TOTAL},
+              {label:"฿20M Retirement", target:20000000, current:TOTAL},
             ].map((ms,i)=>{
               const pct = Math.min(100, ms.current/ms.target*100);
+              const done = ms.current>=ms.target;
+              const est = milestoneEst(ms.target);
               const colors = ["#FBBF24","#6366F1","#4ADE80"];
               return(
                 <div key={i} style={{marginBottom:i<2?14:0}}>
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
                     <div style={{display:"flex",alignItems:"center",gap:6}}>
-                      <span style={{fontSize:13}}>{ms.done?"✅":"🎯"}</span>
+                      <span style={{fontSize:13}}>{done?"✅":"🎯"}</span>
                       <span style={{fontSize:11,fontWeight:700,color:TH.text2}}>{ms.label}</span>
                     </div>
                     <div style={{textAlign:"right"}}>
                       <span style={{fontSize:10,fontWeight:700,color:colors[i],fontFamily:TH.mono}}>{pct.toFixed(1)}%</span>
-                      <div style={{fontSize:8,color:TH.muted}}>est. {ms.est}</div>
+                      <div style={{fontSize:8,color:TH.muted}}>{done?"":"est. "}{est}</div>
                     </div>
                   </div>
                   <div style={{height:6,background:`${colors[i]}15`,borderRadius:999,overflow:"hidden"}}>

@@ -78,10 +78,23 @@ create table if not exists transactions (
 
 create index if not exists transactions_month_idx on transactions (month);
 
+-- One row per asset class, e.g. cls = 'Global Equity', target = 35 (%). Drives the Rebalancing
+-- diffs (Invest tab) and the Allocation score in Wealth Analysis — previously a fixed constant
+-- hard-typed into the app with no way to change it without editing code. Editable from Invest >
+-- Rebalancing > pencil icon (mobile). If this table is empty, the app falls back to a built-in
+-- default split so nothing breaks before you've saved your own targets here.
+create table if not exists target_allocation (
+  id uuid primary key default gen_random_uuid(),
+  cls text not null unique,
+  target numeric not null default 0,
+  updated_at timestamptz not null default now()
+);
+
 alter table holdings enable row level security;
 alter table debts enable row level security;
 alter table spending enable row level security;
 alter table transactions enable row level security;
+alter table target_allocation enable row level security;
 
 -- Single-user app using the public anon key with no auth configured, so these
 -- policies grant the anon role full read/write access to every row. Anyone
@@ -91,3 +104,4 @@ create policy "anon full access" on holdings for all using (true) with check (tr
 create policy "anon full access" on debts for all using (true) with check (true);
 create policy "anon full access" on spending for all using (true) with check (true);
 create policy "anon full access" on transactions for all using (true) with check (true);
+create policy "anon full access" on target_allocation for all using (true) with check (true);
