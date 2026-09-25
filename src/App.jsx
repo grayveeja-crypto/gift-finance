@@ -23,6 +23,19 @@ const card = { background:T.surf, border:`1px solid ${T.border}`, borderRadius:1
 // constant instead of the same magic number typed in ~15 places across the file.
 const DEFAULT_GROSS_INCOME = 88733;
 const DEFAULT_BUDGET = 70400;
+// Born January 1982 — age is computed from this instead of being a fixed number, so it stays
+// correct as calendar years pass instead of quietly going stale (the old hardcoded 42 would've
+// needed a manual code edit every birthday). No in-app UI for this yet since it basically never
+// needs to change; update the two constants below directly if that's ever wrong.
+const BIRTH_YEAR = 1982;
+const BIRTH_MONTH = 1; // 1 = January
+const RETIRE_CURRENT_AGE = (()=>{
+  const now = new Date();
+  let age = now.getFullYear() - BIRTH_YEAR;
+  if (now.getMonth()+1 < BIRTH_MONTH) age--; // hasn't had this year's birthday yet
+  return age;
+})();
+const RETIRE_TARGET_AGE = 60;
 
 // ─── FALLBACK DATA ────────────────────────────────────────────────────────────
 const FB_H = [
@@ -410,7 +423,7 @@ function FundPanel({fund,history,onClose,onEdit,darkMode}){
   );
 }
 
-const QUICK=["How is my portfolio doing?","Should I rebalance now?","Am I on track for retirement?","Review my May spending"];
+const QUICK=["How is my portfolio doing?","Should I rebalance now?","Am I on track for retirement?","Review my latest spending"];
 function AIPanel({open,onClose,holdings,debts,spendingMonths,darkMode}){
   const TH = darkMode ? T : LIGHT_T;
   const [msgs,setMsgs]=useState([{r:"a",t:"Hi Gift! I have your live portfolio data. Ask me anything 📊"}]);
@@ -422,7 +435,9 @@ function AIPanel({open,onClose,holdings,debts,spendingMonths,darkMode}){
   // Most recent real budget logged (same forward-fill as the main app's latestBudget) — this
   // panel gets spendingMonths as its own prop, not the outer scope, so it needs its own copy.
   const latestBudgetAI=(()=>{ for(let i=spendingMonths.length-1;i>=0;i--){ if(spendingMonths[i].budget) return spendingMonths[i].budget; } return null; })();
-  const ctx=`Gift's Portfolio May 2026: Total ${fmt(total)}, Net Worth ${fmt(total-debt)}, Debt ${fmt(debt)}. Holdings: ${holdings.map(h=>`${h.code}(${h.cls}) ${fmt(h.value)} ${sgn(h.dailyPct)}${fd(h.dailyPct)}% daily`).join("; ")}. Latest spend (${latest?.m}): ${fmt(latest?.spent||0)} vs budget ${fmt(latest?.budget||latestBudgetAI||DEFAULT_BUDGET)}.`;
+  // Was hardcoded "Portfolio May 2026" — always told the AI it was May regardless of the real
+  // date, which could bias any answer that referenced "this month".
+  const ctx=`Gift's Portfolio as of ${curMonthLabel()}: Total ${fmt(total)}, Net Worth ${fmt(total-debt)}, Debt ${fmt(debt)}. Holdings: ${holdings.map(h=>`${h.code}(${h.cls}) ${fmt(h.value)} ${sgn(h.dailyPct)}${fd(h.dailyPct)}% daily`).join("; ")}. Latest spend (${latest?.m}): ${fmt(latest?.spent||0)} vs budget ${fmt(latest?.budget||latestBudgetAI||DEFAULT_BUDGET)}.`;
   const send=async text=>{
     const msg=text||inp; if(!msg.trim()||busy) return;
     const nm=[...msgs,{r:"u",t:msg}]; setMsgs(nm); setInp(""); setBusy(true);
@@ -1084,6 +1099,23 @@ export default function App(){
   const ALLOC    = getAlloc(holdings);
   const PERSONAL = holdings.filter(h=>h.type==="Personal").reduce((s,h)=>s+h.value,0);
   const RETIRE   = holdings.filter(h=>h.type==="Retirement").reduce((s,h)=>s+h.value,0);
+  // Real PVD/Retirement-only allocation + real unrealized gain — feeds the "PVD — UOB" card
+  // (desktop Col 2, mobile Plan > Retirement), replacing what used to be a hardcoded 35/25/25/10/5
+  // split with made-up "expected return" percentages that had nothing to do with her real funds.
+  const retireHoldings = holdings.filter(h=>h.type==="Retirement");
+  const pvdAlloc = getAlloc(retireHoldings).sort((a,b)=>b.val-a.val);
+  const retireCost = retireHoldings.reduce((s,h)=>s+h.cost,0);
+  const retireGainPct = retireCost ? (RETIRE-retireCost)/retireCost*100 : 0;
+  const pvdClassGain = (cls)=>{
+    const rows = retireHoldings.filter(h=>h.cls===cls);
+    const val = rows.reduce((s,h)=>s+h.value,0);
+    const cost = rows.reduce((s,h)=>s+h.cost,0);
+    return cost ? (val-cost)/cost*100 : 0;
+  };
+  // Retirement projection horizon, shared by desktop and mobile so the chart length and the
+  // "Retirement Projection to <year>" header can never drift apart from each other.
+  const retireYears = RETIRE_TARGET_AGE - RETIRE_CURRENT_AGE;
+  const retireTargetYear = new Date().getFullYear() + retireYears;
   const CLASSES  = ["All",...Array.from(new Set(holdings.map(h=>h.cls)))];
   const FILTERED = holdings.filter(h=>(!search||(h.code+h.cls+h.name).toLowerCase().includes(search.toLowerCase()))&&(fCls==="All"||h.cls===fCls));
   const REBAL    = targetAlloc.map(t=>{const a=ALLOC.find(x=>x.cls===t.cls);return{...t,actualPct:a?.pct||0,diff:+((a?.pct||0)-t.target).toFixed(1)};});
@@ -1202,7 +1234,14 @@ export default function App(){
     const spendTrend = spendingMonths.map(sm=>{ const cats=sm.cats||{}; return {m:sm.m.replace(" 2026",""),Food:Math.round(cats["Food"]||0),Gas:Math.round(cats["Gas"]||0),Misc:Math.round(cats["Misc"]||0),Cat:Math.round(cats["Cat"]||0),Total:Math.round(sm.spent||0),Budget:Math.round(sm.budget||latestBudget||DEFAULT_BUDGET)}; });
     const projBase = TOTAL-DEBT || 1640385;
     const projMonthly = liveMonthlyContribution || 30000;
-    const projData = Array.from({length:17},(_,i)=>({year:(2026+i).toString(),Conservative:Math.round((projBase+projMonthly*12*i)*Math.pow(1.04,i)),Moderate:Math.round((projBase+projMonthly*12*i)*Math.pow(1.06,i)),Optimistic:Math.round((projBase+projMonthly*12*i)*Math.pow(1.08,i))}));
+    // Same growing-annuity compounding as the mobile projection (each year's contribution only
+    // compounds for the years remaining, not the whole horizon) — desktop used to apply a
+    // simplified formula that compounded the full year's contribution from day one, giving
+    // slightly different numbers than mobile for the same inputs.
+    const projData = Array.from({length:retireYears+1},(_,i)=>{
+      const calc=(r)=>{ let v=projBase; for(let y=0;y<i;y++) v=(v+projMonthly*12)*(1+r); return Math.round(v); };
+      return { year:(new Date().getFullYear()+i).toString(), Conservative:calc(0.04), Moderate:calc(0.06), Optimistic:calc(0.08) };
+    });
     const projFinal = projData[projData.length-1];
     const milestoneYear = (key,target=5000000)=>{ const hit=projData.find(p=>p[key]>=target); return hit?hit.year:null; };
     const pctToMilestone = Math.min(100, projBase/5000000*100);
@@ -1843,34 +1882,34 @@ export default function App(){
               {/* Col 2 — PVD */}
               <div style={dcStyle}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
-                  <div><div style={{fontSize:12,fontWeight:700,color:TH.text}}>PVD — UOB</div><div style={{fontSize:9,color:TH.muted,marginTop:2}}>Reallocated Apr 23, 2026</div></div>
+                  <div><div style={{fontSize:12,fontWeight:700,color:TH.text}}>PVD — UOB</div><div style={{fontSize:9,color:TH.muted,marginTop:2}}>Live monthly contribution</div></div>
                   <div style={{textAlign:"right"}}><div style={{fontFamily:TH.mono,fontSize:14,fontWeight:700,color:TH.text}}>{fmt(RETIRE)}</div><div style={{fontSize:8,color:TH.muted}}>balance</div></div>
                 </div>
                 <div style={{background:TH.surf,borderRadius:12,padding:"10px 12px",marginBottom:12}}>
                   <div style={{fontSize:9,fontWeight:700,color:TH.muted,marginBottom:8,textTransform:"uppercase",letterSpacing:".06em"}}>Monthly DCA</div>
-                  {[{l:"Your 10% (→12% Jun)",v:"฿8,873",nv:"฿10,648",c:"#818CF8"},{l:"Employer 12%",v:"฿10,648",nv:null,c:TH.accent2}].map((r,i)=>(
+                  {[{l:`Your ${fd(PVD_EMPLOYEE_PCT,0)}%`,v:fmt(PVD_EMPLOYEE),c:"#818CF8"},{l:`Employer ${fd(PVD_EMPLOYER_PCT,0)}%`,v:fmt(PVD_EMPLOYER),c:TH.accent2}].map((r,i)=>(
                     <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:i===0?6:0}}>
                       <span style={{fontSize:10,color:TH.text2}}>{r.l}</span>
-                      <div style={{display:"flex",alignItems:"center",gap:5}}><span style={{fontFamily:TH.mono,fontSize:11,fontWeight:700,color:r.c}}>{r.v}</span>{r.nv&&<span style={{fontSize:9,color:TH.green}}>→{r.nv}</span>}</div>
+                      <span style={{fontFamily:TH.mono,fontSize:11,fontWeight:700,color:r.c}}>{r.v}</span>
                     </div>
                   ))}
                   <div style={{borderTop:`1px solid ${TH.border}`,marginTop:8,paddingTop:7,display:"flex",justifyContent:"space-between"}}>
                     <span style={{fontSize:10,fontWeight:700,color:TH.text}}>Total now</span>
-                    <span style={{fontFamily:TH.mono,fontSize:12,fontWeight:800,color:TH.green}}>฿19,521/mo</span>
+                    <span style={{fontFamily:TH.mono,fontSize:12,fontWeight:800,color:TH.green}}>{fmt(PVD_EMPLOYEE+PVD_EMPLOYER)}/mo</span>
                   </div>
                 </div>
-                {[{cls:"Global Equity — UGD",pct:35,ret:"~8.0%",c:"#818CF8"},{cls:"Balanced — UGBF",pct:25,ret:"~5.5%",c:"#34D399"},{cls:"Fixed Income",pct:25,ret:"~1.5%",c:"#38BDF8"},{cls:"Gold — UOBSG",pct:10,ret:"~6.0%",c:"#FBBF24"},{cls:"Global Bond — UGIS",pct:5,ret:"~4.0%",c:"#94A3B8"}].map((a,i)=>(
-                  <div key={i} style={{display:"flex",alignItems:"center",gap:8,marginBottom:i<4?7:0}}>
-                    <div style={{width:6,height:6,borderRadius:"50%",background:a.c,flexShrink:0}}/>
+                {pvdAlloc.length>0?pvdAlloc.map((a,i)=>(
+                  <div key={a.cls} style={{display:"flex",alignItems:"center",gap:8,marginBottom:i<pvdAlloc.length-1?7:0}}>
+                    <div style={{width:6,height:6,borderRadius:"50%",background:a.color,flexShrink:0}}/>
                     <div style={{fontSize:10,color:TH.text2,flex:1}}>{a.cls}</div>
-                    <div style={{flex:1.2,height:4,background:darkMode?"rgba(255,255,255,0.06)":"rgba(0,0,0,0.06)",borderRadius:999,overflow:"hidden"}}><div style={{height:"100%",width:`${a.pct*2}%`,background:a.c,borderRadius:999}}/></div>
+                    <div style={{flex:1.2,height:4,background:darkMode?"rgba(255,255,255,0.06)":"rgba(0,0,0,0.06)",borderRadius:999,overflow:"hidden"}}><div style={{height:"100%",width:`${a.pct*2}%`,background:a.color,borderRadius:999}}/></div>
                     <div style={{fontFamily:TH.mono,fontSize:10,fontWeight:700,color:TH.text,minWidth:24,textAlign:"right"}}>{a.pct}%</div>
-                    <div style={{fontSize:8,color:TH.muted,minWidth:36,textAlign:"right"}}>{a.ret}</div>
+                    <div style={{fontSize:8,color:pvdClassGain(a.cls)>=0?TH.green:TH.red,minWidth:36,textAlign:"right"}}>{pvdClassGain(a.cls)>=0?"+":""}{pvdClassGain(a.cls).toFixed(1)}%</div>
                   </div>
-                ))}
+                )):<div style={{fontSize:10,color:TH.muted}}>No retirement holdings logged yet</div>}
                 <div style={{marginTop:10,padding:"7px 10px",background:"rgba(99,102,241,0.06)",borderRadius:10,border:"1px solid rgba(99,102,241,0.15)",display:"flex",justifyContent:"space-between"}}>
-                  <span style={{fontSize:9,color:TH.muted}}>Blended return</span>
-                  <span style={{fontSize:11,fontWeight:700,color:"#818CF8",fontFamily:TH.mono}}>~5.35% p.a.</span>
+                  <span style={{fontSize:9,color:TH.muted}}>Unrealized gain</span>
+                  <span style={{fontSize:11,fontWeight:700,color:retireGainPct>=0?"#818CF8":TH.red,fontFamily:TH.mono}}>{retireGainPct>=0?"+":""}{retireGainPct.toFixed(2)}%</span>
                 </div>
               </div>
               {/* Col 3 — Debt + Health + Rebalance */}
@@ -2175,7 +2214,7 @@ export default function App(){
                 </div>
                 {/* Retirement Projection — full width */}
                 <div style={{...dcStyle,gridColumn:"1 / -1"}}>
-                  <div style={{fontSize:13,fontWeight:700,marginBottom:2}}>Retirement Projection to 2042</div>
+                  <div style={{fontSize:13,fontWeight:700,marginBottom:2}}>Retirement Projection to {retireTargetYear}</div>
                   <div style={{fontSize:10,color:TH.muted,marginBottom:8}}>{fmt(projMonthly)}/mo contributions (live avg) · ฿5M milestone → ฿20M ultimate goal</div>
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",background:"rgba(129,140,248,0.07)",border:"1px solid rgba(129,140,248,0.18)",borderRadius:10,padding:"8px 14px",marginBottom:12}}>
                     <div><div style={{fontSize:9,color:TH.muted,fontWeight:600}}>ACTUAL TODAY</div><div style={{fontSize:15,fontWeight:800,color:TH.text,fontFamily:TH.mono}}>{fmt(projBase)}</div></div>
@@ -3359,13 +3398,13 @@ export default function App(){
         {/* ══ PLANNING ══ */}
         {tab==="planning"&&(()=>{
           // ── Retirement projection (moved from the old Trends tab) ──
-          const currentAge = 42;
-          const retireAge  = 60;
-          const years      = retireAge - currentAge;
+          // Age/target-age and the resulting horizon come from the shared RETIRE_CURRENT_AGE /
+          // RETIRE_TARGET_AGE / retireYears defined once near the top of the component, so this
+          // can't drift out of sync with the desktop layout's own retirement projection.
           const currentPF  = (TOTAL-DEBT) || 1640385;
           const monthly    = liveMonthlyContribution || 30000; // live avg of PVD + Retirement-cat transactions
-          const projData   = Array.from({length:years+1},(_,i)=>{
-            const label = (2026+i).toString();
+          const projData   = Array.from({length:retireYears+1},(_,i)=>{
+            const label = (new Date().getFullYear()+i).toString();
             const base  = currentPF;
             const calc  = (r)=>{
               let v=base;
@@ -3811,7 +3850,7 @@ export default function App(){
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
               <div>
                 <div style={{fontSize:12,fontWeight:700}}>PVD — UOB Asset Management</div>
-                <div style={{fontSize:9,color:TH.muted,marginTop:2}}>Reallocated Apr 23, 2026</div>
+                <div style={{fontSize:9,color:TH.muted,marginTop:2}}>Live monthly contribution</div>
               </div>
               <div style={{textAlign:"right"}}>
                 <div style={{fontFamily:TH.mono,fontSize:13,fontWeight:700}}>{fmt(RETIRE)}</div>
@@ -3820,36 +3859,30 @@ export default function App(){
             </div>
             <div style={{background:"rgba(255,255,255,0.03)",borderRadius:12,padding:"10px 12px",marginBottom:11}}>
               <div style={{fontSize:9,fontWeight:700,color:TH.muted,marginBottom:8,textTransform:"uppercase",letterSpacing:".06em"}}>Monthly DCA</div>
-              {[{l:"Your 10% (→12% Jun)",v:"฿8,873",nv:"฿10,648",c:"#818CF8"},{l:"Employer 12%",v:"฿10,648",nv:null,c:TH.accent2}].map((r,i)=>(
+              {[{l:`Your ${fd(PVD_EMPLOYEE_PCT,0)}%`,v:fmt(PVD_EMPLOYEE),c:"#818CF8"},{l:`Employer ${fd(PVD_EMPLOYER_PCT,0)}%`,v:fmt(PVD_EMPLOYER),c:TH.accent2}].map((r,i)=>(
                 <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:i===0?6:0}}>
                   <span style={{fontSize:10,color:TH.text2}}>{r.l}</span>
-                  <div style={{display:"flex",alignItems:"center",gap:5}}><span style={{fontFamily:TH.mono,fontSize:11,fontWeight:700,color:r.c}}>{r.v}</span>{r.nv&&<span style={{fontSize:9,color:TH.green}}>→{r.nv}</span>}</div>
+                  <span style={{fontFamily:TH.mono,fontSize:11,fontWeight:700,color:r.c}}>{r.v}</span>
                 </div>
               ))}
               <div style={{borderTop:`1px solid ${TH.border}`,marginTop:8,paddingTop:7,display:"flex",justifyContent:"space-between"}}>
                 <span style={{fontSize:10,fontWeight:700}}>Total now</span>
-                <div style={{display:"flex",gap:8,alignItems:"center"}}><span style={{fontFamily:TH.mono,fontSize:12,fontWeight:800,color:TH.green}}>฿19,521/mo</span><span style={{fontSize:9,color:TH.green}}>→฿21,296 Jun</span></div>
+                <span style={{fontFamily:TH.mono,fontSize:12,fontWeight:800,color:TH.green}}>{fmt(PVD_EMPLOYEE+PVD_EMPLOYER)}/mo</span>
               </div>
             </div>
             <div style={{fontSize:9,fontWeight:700,color:TH.muted,marginBottom:8,textTransform:"uppercase",letterSpacing:".06em"}}>Allocation</div>
-            {[
-              {cls:"Global Equity — UGD",pct:35,ret:"~8.0% p.a.",c:"#818CF8"},
-              {cls:"Balanced — UGBF",    pct:25,ret:"~5.5% p.a.",c:"#34D399"},
-              {cls:"Fixed Income",       pct:25,ret:"~1.5% p.a.",c:"#38BDF8"},
-              {cls:"Gold — UOBSG",       pct:10,ret:"~6.0% p.a.",c:"#FBBF24"},
-              {cls:"Global Bond — UGIS", pct:5, ret:"~4.0% p.a.",c:"#94A3B8"},
-            ].map((a,i)=>(
-              <div key={i} style={{display:"flex",alignItems:"center",gap:8,marginBottom:i<4?7:0}}>
-                <div style={{width:6,height:6,borderRadius:"50%",background:a.c,flexShrink:0}}/>
+            {pvdAlloc.length>0?pvdAlloc.map((a,i)=>(
+              <div key={a.cls} style={{display:"flex",alignItems:"center",gap:8,marginBottom:i<pvdAlloc.length-1?7:0}}>
+                <div style={{width:6,height:6,borderRadius:"50%",background:a.color,flexShrink:0}}/>
                 <div style={{fontSize:10,color:TH.text2,flex:1}}>{a.cls}</div>
-                <div style={{flex:1.5,height:4,background:darkMode?"rgba(255,255,255,0.06)":"rgba(0,0,0,0.06)",borderRadius:999,overflow:"hidden"}}><div style={{height:"100%",width:`${a.pct*2}%`,background:a.c,borderRadius:999}}/></div>
+                <div style={{flex:1.5,height:4,background:darkMode?"rgba(255,255,255,0.06)":"rgba(0,0,0,0.06)",borderRadius:999,overflow:"hidden"}}><div style={{height:"100%",width:`${a.pct*2}%`,background:a.color,borderRadius:999}}/></div>
                 <div style={{fontFamily:TH.mono,fontSize:10,fontWeight:700,minWidth:26,textAlign:"right"}}>{a.pct}%</div>
-                <div style={{fontSize:8,color:TH.muted,minWidth:52,textAlign:"right"}}>{a.ret}</div>
+                <div style={{fontSize:8,color:pvdClassGain(a.cls)>=0?TH.green:TH.red,minWidth:52,textAlign:"right"}}>{pvdClassGain(a.cls)>=0?"+":""}{pvdClassGain(a.cls).toFixed(1)}%</div>
               </div>
-            ))}
+            )):<div style={{fontSize:10,color:TH.muted}}>No retirement holdings logged yet</div>}
             <div style={{marginTop:10,padding:"7px 10px",background:"rgba(99,102,241,0.06)",borderRadius:10,border:"1px solid rgba(99,102,241,0.15)",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-              <span style={{fontSize:9,color:TH.muted}}>Blended expected return</span>
-              <span style={{fontSize:11,fontWeight:700,color:"#818CF8",fontFamily:TH.mono}}>~5.35% p.a.</span>
+              <span style={{fontSize:9,color:TH.muted}}>Unrealized gain</span>
+              <span style={{fontSize:11,fontWeight:700,color:retireGainPct>=0?"#818CF8":TH.red,fontFamily:TH.mono}}>{retireGainPct>=0?"+":""}{retireGainPct.toFixed(2)}%</span>
             </div>
           </div>
 
