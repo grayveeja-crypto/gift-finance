@@ -587,9 +587,16 @@ export default function App(){
     .filter(g=>g.name!=="Emergency")
     .sort((a,b)=>(a.sort_order||0)-(b.sort_order||0))
     .map((g,i)=>({ id:g.id, name:g.name, target:g.target||0, current:cumulativeCatAmount(g.name), color:GOAL_COLORS[i%GOAL_COLORS.length] }));
-  // Add Expense's category grid — the built-ins plus any custom goal (Kitchen Renovation) or
-  // custom category (Gym Membership) she's added, so either shows up there the moment it exists.
-  const CAT_GRID_ALL = Array.from(new Set([...CAT_GRID_ORDER, ...goalsDB.map(g=>g.name), ...categoriesDB.map(c=>c.name)]));
+  // Every category that exists at all — built-ins, goals, and anything she's added or hidden
+  // from Manage Categories. Used by Manage Categories itself, which needs to show hidden ones
+  // too (so she can restore them).
+  const ALL_CATS = Array.from(new Set([...CAT_GRID_ORDER, ...goalsDB.map(g=>g.name), ...categoriesDB.map(c=>c.name)]));
+  // Add Expense's category grid — same as above, minus anything she's hidden from Manage
+  // Categories (a goal is never hidden this way — delete the goal itself to remove it).
+  const CAT_GRID_ALL = ALL_CATS.filter(name=>{
+    const row = categoriesDB.find(c=>c.name===name);
+    return !(row?.hidden && !goalsDB.some(g=>g.name===name));
+  });
   // Fixed / Savings / Lifestyle classification for one category — this is THE single rule the
   // whole app uses to decide what counts as spending vs. savings, and what shows as a "fixed
   // bill". A goal (Japan Fund, Kitchen Renovation, ...) is always savings — that's what makes it
@@ -606,9 +613,11 @@ export default function App(){
   };
   // Replaces the old fixed FIXED_CATS/SAVINGS_CATS lists everywhere they were used to decide
   // spend-vs-savings or fixed-bill totals — a brand-new goal or a recategorized category is
-  // picked up automatically, no code change needed.
-  const FIXED_CATS_ALL   = CAT_GRID_ALL.filter(c=>categoryType(c)==="fixed");
-  const SAVINGS_CATS_ALL = CAT_GRID_ALL.filter(c=>categoryType(c)==="savings");
+  // picked up automatically, no code change needed. Built off ALL_CATS (not the hidden-filtered
+  // CAT_GRID_ALL) so hiding a category from Add Expense never changes how its PAST transactions
+  // are classified.
+  const FIXED_CATS_ALL   = ALL_CATS.filter(c=>categoryType(c)==="fixed");
+  const SAVINGS_CATS_ALL = ALL_CATS.filter(c=>categoryType(c)==="savings");
   // Most recent month that actually has these fields set in Supabase, so a brand-new month row
   // (or one still on fallback data) inherits the last real figure instead of jumping straight to
   // the hardcoded default. Employee & employer PVD% are tracked separately since they diverge
@@ -813,7 +822,12 @@ export default function App(){
   const [newCatName,setNewCatName]=useState("");
   const [newCatType,setNewCatType]=useState("lifestyle");
   function openManageCategories(){
-    setCategoryForm(CAT_GRID_ALL.map(name=>({ name, type:categoryType(name), locked: goalsDB.some(g=>g.name===name) })));
+    // Uses ALL_CATS (not the hidden-filtered CAT_GRID_ALL) so a category she hid earlier still
+    // shows up here — as "Hidden" — so she can restore it.
+    setCategoryForm(ALL_CATS.map(name=>{
+      const row = categoriesDB.find(c=>c.name===name);
+      return { name, type:categoryType(name), hidden:!!row?.hidden, locked: goalsDB.some(g=>g.name===name) };
+    }));
     setNewCatName(""); setNewCatType("lifestyle");
     setCategoryFormStatus(null);
     setTab("spending"); setSpendSubTab("managecats");
@@ -821,11 +835,16 @@ export default function App(){
   function addCategoryRow(){
     const name = newCatName.trim();
     if(!name || categoryForm.some(c=>c.name.toLowerCase()===name.toLowerCase())) return;
-    setCategoryForm(f=>[...f, {name, type:newCatType, locked:false}]);
+    setCategoryForm(f=>[...f, {name, type:newCatType, hidden:false, locked:false}]);
     setNewCatName(""); setNewCatType("lifestyle");
   }
+  // Hiding removes a category from the Add Expense picker without touching its past
+  // transactions or its Fixed/Savings/Lifestyle classification — reversible any time from here.
+  function toggleHideCategory(name){
+    setCategoryForm(f=>f.map(c=>c.name===name?{...c,hidden:!c.hidden}:c));
+  }
   async function submitCategories(){
-    const rows = categoryForm.filter(c=>!c.locked).map(c=>({name:c.name, type:c.type}));
+    const rows = categoryForm.filter(c=>!c.locked).map(c=>({name:c.name, type:c.type, hidden:c.hidden}));
     if(!rows.length) return;
     setCategoryFormStatus("saving");
     try{
@@ -1106,7 +1125,7 @@ export default function App(){
     try{
       const { data, error } = await supabase.from("categories").select("*");
       if(error) throw error;
-      if(data) setCategoriesDB(data.map(r=>({id:r.id, name:r.name, type:r.type})));
+      if(data) setCategoriesDB(data.map(r=>({id:r.id, name:r.name, type:r.type, hidden:!!r.hidden})));
     }catch(e){ /* table may not exist yet (migration not run) — categoryType() falls back to the old built-in classification */ }
     try{
       const [{ data: spendRows, error: spendErr }, { data: txnRows, error: txnErr }] = await Promise.all([
@@ -3575,20 +3594,26 @@ export default function App(){
                 <div style={{fontSize:11,color:TH.muted}}>Fixed = bills, Savings = excluded from spend totals, Lifestyle = everyday discretionary spend</div>
               </div>
               {categoryForm.map((c,i)=>(
-                <div key={c.name} style={{display:"flex",alignItems:"center",gap:8,marginBottom:9}}>
-                  <div style={{flex:1,minWidth:0,fontSize:12,color:c.locked?TH.muted:TH.text2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name}</div>
+                <div key={c.name} style={{display:"flex",alignItems:"center",gap:8,marginBottom:9,opacity:c.hidden?0.5:1}}>
+                  <div style={{flex:1,minWidth:0,fontSize:12,color:c.locked?TH.muted:TH.text2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",textDecoration:c.hidden?"line-through":"none"}}>{c.name}</div>
                   {c.locked?(
                     <span style={{fontSize:9,fontWeight:700,color:TH.green,background:`${TH.green}15`,padding:"5px 10px",borderRadius:999,flexShrink:0}}>Savings (goal, locked)</span>
+                  ):c.hidden?(
+                    <button type="button" onClick={()=>toggleHideCategory(c.name)} style={{fontSize:10,fontWeight:700,color:TH.accent,background:"transparent",border:`1px solid ${TH.border}`,borderRadius:999,padding:"5px 10px",cursor:"pointer",flexShrink:0}}>Restore</button>
                   ):(
-                    <div style={{display:"flex",gap:4,flexShrink:0}}>
+                    <div style={{display:"flex",gap:4,flexShrink:0,alignItems:"center"}}>
                       {TYPES.map(t=>(
                         <button key={t.v} type="button" onClick={()=>setCategoryForm(f=>f.map((x,j)=>j===i?{...x,type:t.v}:x))}
                           style={{padding:"5px 9px",borderRadius:999,fontSize:9,fontWeight:700,cursor:"pointer",border:c.type===t.v?`1px solid ${t.c}`:`1px solid ${TH.border}`,background:c.type===t.v?`${t.c}1A`:"transparent",color:c.type===t.v?t.c:TH.inactive}}>{t.l}</button>
                       ))}
+                      <button type="button" onClick={()=>toggleHideCategory(c.name)} title="Remove from Add Expense" style={{width:22,height:22,borderRadius:7,background:"transparent",border:`1px solid ${TH.border}`,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",padding:0,flexShrink:0}}>
+                        <X size={11} color={TH.muted}/>
+                      </button>
                     </div>
                   )}
                 </div>
               ))}
+              <div style={{fontSize:9,color:TH.muted,marginBottom:4}}>Removing a category only hides it from Add Expense — past transactions and its type stay exactly as they are, and you can restore it here any time.</div>
 
               <div style={{marginTop:16,paddingTop:14,borderTop:`1px solid ${TH.border}`}}>
                 <div style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em",marginBottom:8}}>Add a new category</div>
