@@ -118,12 +118,44 @@ insert into goals (name, target, sort_order) values ('Japan Fund', 120000, 1)
 insert into goals (name, target, sort_order) values ('Emergency', null, 0)
   on conflict (name) do nothing;
 
+-- One row per spending category, e.g. name = 'Housing', type = 'fixed'. `type` is the single
+-- rule the whole app uses to decide what counts as a fixed bill vs. spending vs. savings (the
+-- Summary screen's Savings/Fixed/Lifestyle split, the Fixed Bills total, and what's excluded
+-- from spend/budget totals as savings). A goal-linked category (Japan Fund, Kitchen Renovation,
+-- ...) is always 'savings' by virtue of being in the `goals` table above and is never stored
+-- here — Manage Categories shows those as locked. If this table is empty, or a category isn't
+-- in it yet, the app falls back to its original built-in classification, so nothing breaks
+-- before you've customized anything.
+-- `hidden` removes a category from the Add Expense picker without touching its past
+-- transactions or its type — reversible any time from Manage Categories.
+create table if not exists categories (
+  id uuid primary key default gen_random_uuid(),
+  name text not null unique,
+  type text not null check (type in ('fixed','savings','lifestyle')),
+  hidden boolean not null default false,
+  updated_at timestamptz not null default now()
+);
+alter table categories add column if not exists hidden boolean not null default false;
+
+-- Seed today's real classification so Manage Categories reflects reality on first open, instead
+-- of showing everything at a default until you touch each row.
+insert into categories (name, type) values
+  ('Housing','fixed'), ('Mom','fixed'), ('Internet','fixed'), ('Phone','fixed'),
+  ('Subscriptions','fixed'), ('Installment','fixed'),
+  ('Retirement','savings'), ('Investment','savings'),
+  ('Food','lifestyle'), ('Gas','lifestyle'), ('Cat','lifestyle'), ('Transport','lifestyle'),
+  ('Misc','lifestyle'), ('Groceries','lifestyle'), ('Entertainment','lifestyle'),
+  ('Healthcare','lifestyle'), ('Education','lifestyle'), ('Clothing','lifestyle'),
+  ('Gifts','lifestyle'), ('Travel','lifestyle'), ('Alcohol','lifestyle')
+  on conflict (name) do nothing;
+
 alter table holdings enable row level security;
 alter table debts enable row level security;
 alter table spending enable row level security;
 alter table transactions enable row level security;
 alter table target_allocation enable row level security;
 alter table goals enable row level security;
+alter table categories enable row level security;
 
 -- Single-user app using the public anon key with no auth configured, so these
 -- policies grant the anon role full read/write access to every row. Anyone
@@ -135,3 +167,4 @@ create policy "anon full access" on spending for all using (true) with check (tr
 create policy "anon full access" on transactions for all using (true) with check (true);
 create policy "anon full access" on target_allocation for all using (true) with check (true);
 create policy "anon full access" on goals for all using (true) with check (true);
+create policy "anon full access" on categories for all using (true) with check (true);

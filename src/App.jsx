@@ -532,6 +532,10 @@ export default function App(){
   // Editable short-term goals (Japan Fund, Emergency's target override, any custom goal she adds
   // like Kitchen Renovation) — from Supabase; empty until the goals table exists/has rows.
   const [goalsDB,setGoalsDB]=useState([]);
+  // Per-category classification (Fixed / Savings / Lifestyle) she's customized from Manage
+  // Categories — from Supabase; empty until the table exists/has rows, in which case
+  // categoryType() below falls back to the app's built-in defaults (old FIXED_CATS/SAVINGS_CATS).
+  const [categoriesDB,setCategoriesDB]=useState([]);
   // Emergency-fund target, in months of real average spend — her own choice (Wealth > Liquidity
   // lets her change it), remembered locally per device like the profile photo.
   const [efTargetMonths,setEfTargetMonths]=useState(()=>{
@@ -583,14 +587,28 @@ export default function App(){
     .filter(g=>g.name!=="Emergency")
     .sort((a,b)=>(a.sort_order||0)-(b.sort_order||0))
     .map((g,i)=>({ id:g.id, name:g.name, target:g.target||0, current:cumulativeCatAmount(g.name), color:GOAL_COLORS[i%GOAL_COLORS.length] }));
-  // Every category any goal is linked to (plus the built-ins) counts as savings, not spending —
-  // replaces the old fixed SAVINGS_CATS list so a brand-new goal is excluded from spend totals
-  // automatically, with no code change needed.
-  const SAVINGS_CATS_ALL = Array.from(new Set([...SAVINGS_CATS, ...goalsDB.map(g=>g.name)]));
-  // Add Expense's category grid — the built-in categories plus any custom goal category that
-  // isn't already one of them (e.g. "Kitchen Renovation"), so a new goal is selectable there
-  // the moment it's created.
-  const CAT_GRID_ALL = [...CAT_GRID_ORDER, ...goalsDB.map(g=>g.name).filter(n=>!CAT_GRID_ORDER.includes(n))];
+  // Add Expense's category grid — the built-ins plus any custom goal (Kitchen Renovation) or
+  // custom category (Gym Membership) she's added, so either shows up there the moment it exists.
+  const CAT_GRID_ALL = Array.from(new Set([...CAT_GRID_ORDER, ...goalsDB.map(g=>g.name), ...categoriesDB.map(c=>c.name)]));
+  // Fixed / Savings / Lifestyle classification for one category — this is THE single rule the
+  // whole app uses to decide what counts as spending vs. savings, and what shows as a "fixed
+  // bill". A goal (Japan Fund, Kitchen Renovation, ...) is always savings — that's what makes it
+  // a goal — and can't be reclassified from Manage Categories. Everything else uses whatever she
+  // picked in Manage Categories, falling back to the app's original built-in split until she's
+  // customized it.
+  const categoryType = (name) => {
+    if(goalsDB.some(g=>g.name===name)) return "savings";
+    const row = categoriesDB.find(c=>c.name===name);
+    if(row) return row.type;
+    if(FIXED_CATS.includes(name)) return "fixed";
+    if(SAVINGS_CATS.includes(name)) return "savings";
+    return "lifestyle";
+  };
+  // Replaces the old fixed FIXED_CATS/SAVINGS_CATS lists everywhere they were used to decide
+  // spend-vs-savings or fixed-bill totals — a brand-new goal or a recategorized category is
+  // picked up automatically, no code change needed.
+  const FIXED_CATS_ALL   = CAT_GRID_ALL.filter(c=>categoryType(c)==="fixed");
+  const SAVINGS_CATS_ALL = CAT_GRID_ALL.filter(c=>categoryType(c)==="savings");
   // Most recent month that actually has these fields set in Supabase, so a brand-new month row
   // (or one still on fallback data) inherits the last real figure instead of jumping straight to
   // the hardcoded default. Employee & employer PVD% are tracked separately since they diverge
@@ -781,6 +799,44 @@ export default function App(){
     }catch(e){
       setGoalFormStatus("error");
       setTimeout(()=>setGoalFormStatus(null),3000);
+    }
+  }
+
+  // ─── MANAGE CATEGORIES (upserts into the categories table) ────────────────────────────
+  // Standing tab page (spendSubTab==="managecats"). Bulk-edits every category's Fixed/Savings/
+  // Lifestyle type in one save (same pattern as Edit Target Allocation), plus lets her add a
+  // brand-new category (e.g. "Gym Membership") that becomes selectable in Add Expense right
+  // away. Goal-linked categories (Japan Fund, Kitchen Renovation, ...) are locked to Savings
+  // here — reclassify those from the Goals screen by deleting the goal instead.
+  const [categoryForm,setCategoryForm]=useState([]); // [{name,type,locked}]
+  const [categoryFormStatus,setCategoryFormStatus]=useState(null); // null | "saving" | "success" | "error"
+  const [newCatName,setNewCatName]=useState("");
+  const [newCatType,setNewCatType]=useState("lifestyle");
+  function openManageCategories(){
+    setCategoryForm(CAT_GRID_ALL.map(name=>({ name, type:categoryType(name), locked: goalsDB.some(g=>g.name===name) })));
+    setNewCatName(""); setNewCatType("lifestyle");
+    setCategoryFormStatus(null);
+    setTab("spending"); setSpendSubTab("managecats");
+  }
+  function addCategoryRow(){
+    const name = newCatName.trim();
+    if(!name || categoryForm.some(c=>c.name.toLowerCase()===name.toLowerCase())) return;
+    setCategoryForm(f=>[...f, {name, type:newCatType, locked:false}]);
+    setNewCatName(""); setNewCatType("lifestyle");
+  }
+  async function submitCategories(){
+    const rows = categoryForm.filter(c=>!c.locked).map(c=>({name:c.name, type:c.type}));
+    if(!rows.length) return;
+    setCategoryFormStatus("saving");
+    try{
+      const { error } = await supabase.from("categories").upsert(rows, { onConflict: "name" });
+      if(error) throw error;
+      setCategoryFormStatus("success");
+      setTimeout(()=>{setCategoryFormStatus(null); setSpendSubTab(null);},1000);
+      fetchAll(true);
+    }catch(e){
+      setCategoryFormStatus("error");
+      setTimeout(()=>setCategoryFormStatus(null),3000);
     }
   }
 
@@ -1048,6 +1104,11 @@ export default function App(){
       if(data) setGoalsDB(data.map(r=>({id:r.id, name:r.name, target: r.target==null?null:pn(r.target), sort_order:r.sort_order||0})));
     }catch(e){ /* table may not exist yet (migration not run) — Goals card falls back to the old fixed Japan Fund figure */ }
     try{
+      const { data, error } = await supabase.from("categories").select("*");
+      if(error) throw error;
+      if(data) setCategoriesDB(data.map(r=>({id:r.id, name:r.name, type:r.type})));
+    }catch(e){ /* table may not exist yet (migration not run) — categoryType() falls back to the old built-in classification */ }
+    try{
       const [{ data: spendRows, error: spendErr }, { data: txnRows, error: txnErr }] = await Promise.all([
         supabase.from("spending").select("*"),
         supabase.from("transactions").select("*").order("date",{ascending:true}),
@@ -1222,7 +1283,7 @@ export default function App(){
   const CM       = spendingMonths[selMonth]||spendingMonths[spendingMonths.length-1]||FB_SP[1];
   const INCOME   = CM.income||cashFlow.income||75400;
   const TXNS     = [...(CM.transactions||[])].reverse();
-  const FIXED_BILLS_THIS_MONTH = TXNS.filter(t=>FIXED_CATS.includes(t.cat)).reduce((s,t)=>s+t.amount,0);
+  const FIXED_BILLS_THIS_MONTH = TXNS.filter(t=>FIXED_CATS_ALL.includes(t.cat)).reduce((s,t)=>s+t.amount,0);
   const rawCats  = CM.cats&&Object.keys(CM.cats).length>0?CM.cats:(CM.transactions||[]).reduce((acc,t)=>{acc[t.cat]=(acc[t.cat]||0)+t.amount;return acc;},{});
   const CAT_DATA = Object.entries(rawCats).filter(([,v])=>v>0).map(([k,v])=>({name:k,v})).sort((a,b)=>b.v-a.v);
   const isLive   = dataSource==="live";
@@ -1282,7 +1343,7 @@ export default function App(){
   const spendGroups=()=>{
     const g={};
     TXNS.forEach(t=>{
-      if(!g[t.cat]) g[t.cat]={cat:t.cat,txns:[],total:0,type:SAVINGS_CATS_ALL.includes(t.cat)?"savings":FIXED_CATS.includes(t.cat)?"fixed":t.amount>=5000?"notable":"normal"};
+      if(!g[t.cat]) g[t.cat]={cat:t.cat,txns:[],total:0,type:categoryType(t.cat)==="savings"?"savings":categoryType(t.cat)==="fixed"?"fixed":t.amount>=5000?"notable":"normal"};
       g[t.cat].txns.push(t); g[t.cat].total+=t.amount;
     });
     const ORDER={savings:0,fixed:1,notable:2,normal:3};
@@ -1893,7 +1954,7 @@ export default function App(){
                   <div style={{fontSize:12,fontWeight:700,color:TH.text,marginBottom:12}}>Summary</div>
                   {(()=>{
                     const sav=TXNS.filter(t=>SAVINGS_CATS_ALL.includes(t.cat)).reduce((s,t)=>s+t.amount,0);
-                    const fix=TXNS.filter(t=>FIXED_CATS.includes(t.cat)).reduce((s,t)=>s+t.amount,0);
+                    const fix=TXNS.filter(t=>FIXED_CATS_ALL.includes(t.cat)).reduce((s,t)=>s+t.amount,0);
                     const disc=(CM.spent||0)-sav-fix;
                     return(
                       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
@@ -3146,6 +3207,14 @@ export default function App(){
                 </div>
                 <ChevronRight size={16} color={TH.dim}/>
               </div>
+              <div onClick={openManageCategories} style={{...cardStyle,cursor:"pointer",display:"flex",alignItems:"center",gap:12}}>
+                <div style={{width:44,height:44,borderRadius:12,background:"rgba(148,163,184,0.12)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>🏷️</div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:13,fontWeight:700,color:TH.text}}>Manage Categories</div>
+                  <div style={{fontSize:11,color:TH.muted,marginTop:2}}>Fixed, Savings or Lifestyle — plus add your own</div>
+                </div>
+                <ChevronRight size={16} color={TH.dim}/>
+              </div>
             </>
           ):(
           <>
@@ -3389,7 +3458,7 @@ export default function App(){
               <div style={{marginTop:11,padding:"10px 12px",background:`${TH.accent}08`,borderRadius:11,border:`1px solid ${TH.accent}20`}}>
                 {(()=>{
                   const sav=TXNS.filter(t=>SAVINGS_CATS_ALL.includes(t.cat)).reduce((s,t)=>s+t.amount,0);
-                  const fix=TXNS.filter(t=>FIXED_CATS.includes(t.cat)).reduce((s,t)=>s+t.amount,0);
+                  const fix=TXNS.filter(t=>FIXED_CATS_ALL.includes(t.cat)).reduce((s,t)=>s+t.amount,0);
                   return(
                     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,textAlign:"center"}}>
                       {[{l:"Savings",v:sav,c:TH.green},{l:"Fixed",v:fix,c:TH.inactive},{l:"Lifestyle",v:(CM.spent||0)-sav-fix,c:TH.accent2}].map((s,i)=>(
@@ -3496,6 +3565,61 @@ export default function App(){
             )}
           </div>
           </>)}
+
+          {spendSubTab==="managecats"&&(()=>{
+            const TYPES = [{v:"fixed",l:"Fixed",c:TH.inactive},{v:"savings",l:"Savings",c:TH.green},{v:"lifestyle",l:"Lifestyle",c:TH.accent2}];
+            return(
+            <div style={cardStyle}>
+              <div style={{marginBottom:16}}>
+                <div style={{fontSize:15,fontWeight:800,color:TH.text}}>Manage Categories</div>
+                <div style={{fontSize:11,color:TH.muted}}>Fixed = bills, Savings = excluded from spend totals, Lifestyle = everyday discretionary spend</div>
+              </div>
+              {categoryForm.map((c,i)=>(
+                <div key={c.name} style={{display:"flex",alignItems:"center",gap:8,marginBottom:9}}>
+                  <div style={{flex:1,minWidth:0,fontSize:12,color:c.locked?TH.muted:TH.text2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name}</div>
+                  {c.locked?(
+                    <span style={{fontSize:9,fontWeight:700,color:TH.green,background:`${TH.green}15`,padding:"5px 10px",borderRadius:999,flexShrink:0}}>Savings (goal, locked)</span>
+                  ):(
+                    <div style={{display:"flex",gap:4,flexShrink:0}}>
+                      {TYPES.map(t=>(
+                        <button key={t.v} type="button" onClick={()=>setCategoryForm(f=>f.map((x,j)=>j===i?{...x,type:t.v}:x))}
+                          style={{padding:"5px 9px",borderRadius:999,fontSize:9,fontWeight:700,cursor:"pointer",border:c.type===t.v?`1px solid ${t.c}`:`1px solid ${TH.border}`,background:c.type===t.v?`${t.c}1A`:"transparent",color:c.type===t.v?t.c:TH.inactive}}>{t.l}</button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+
+              <div style={{marginTop:16,paddingTop:14,borderTop:`1px solid ${TH.border}`}}>
+                <div style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em",marginBottom:8}}>Add a new category</div>
+                <div style={{display:"flex",gap:8,marginBottom:8}}>
+                  <input type="text" value={newCatName} onChange={e=>setNewCatName(e.target.value)} placeholder="e.g. Gym Membership"
+                    style={{flex:1,minWidth:0,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"10px 12px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
+                </div>
+                <div style={{display:"flex",gap:6,marginBottom:10}}>
+                  {TYPES.map(t=>(
+                    <button key={t.v} type="button" onClick={()=>setNewCatType(t.v)}
+                      style={{flex:1,padding:"8px 0",borderRadius:10,fontSize:11,fontWeight:700,cursor:"pointer",border:newCatType===t.v?`1.5px solid ${t.c}`:`1px solid ${TH.border}`,background:newCatType===t.v?`${t.c}1A`:TH.surf,color:newCatType===t.v?t.c:TH.text2}}>{t.l}</button>
+                  ))}
+                </div>
+                <button onClick={addCategoryRow} disabled={!newCatName.trim()} style={{width:"100%",padding:11,borderRadius:12,fontWeight:700,fontSize:12,background:newCatName.trim()?"rgba(99,102,241,0.1)":"transparent",border:`1px solid ${newCatName.trim()?TH.accent:TH.border}`,color:newCatName.trim()?TH.accent:TH.muted,cursor:newCatName.trim()?"pointer":"default"}}>
+                  + Add to list below
+                </button>
+              </div>
+
+              {categoryFormStatus==="saving"&&<div style={{textAlign:"center",fontSize:12,color:TH.muted,margin:"14px 0 0"}}>Saving…</div>}
+              {categoryFormStatus==="success"&&<div style={{textAlign:"center",fontSize:12,color:"#4ADE80",margin:"14px 0 0"}}>✓ Saved!</div>}
+              {categoryFormStatus==="error"&&<div style={{textAlign:"center",fontSize:12,color:"#F87171",margin:"14px 0 0"}}>Failed to save — check connection</div>}
+
+              <button
+                onClick={submitCategories}
+                disabled={categoryFormStatus==="saving"}
+                style={{width:"100%",padding:14,borderRadius:12,fontWeight:700,fontSize:13,background:"linear-gradient(135deg,#6366F1,#38BDF8)",border:"none",color:"white",cursor:"pointer",marginTop:14}}>
+                Save Categories
+              </button>
+            </div>
+            );
+          })()}
           </>
           )}
         </div>)}
