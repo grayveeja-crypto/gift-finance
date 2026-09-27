@@ -111,6 +111,47 @@ const CAT_ICON = { Housing:Home,Food:Utensils,Mom:Heart,Retirement:PiggyBank,"Ja
   Groceries:ShoppingCart,Entertainment:PartyPopper,Healthcare:Stethoscope,Education:GraduationCap,Clothing:Shirt,Gifts:GiftIcon,Travel:MapPin,Alcohol:Wine };
 // Order for the category grid — real categories first, generic ones after
 const CAT_GRID_ORDER = ["Housing","Food","Mom","Retirement","Japan Fund","Emergency","Installment","Gas","Phone","Internet","Subscriptions","Cat","Transport","Misc","Groceries","Entertainment","Healthcare","Education","Clothing","Gifts","Travel","Alcohol"];
+// "Japan Fund" and "Emergency" above are only placeholders for wherever this list is used before
+// goalsDB has loaded — both are really goal-linked names that live in the `goals` table and can be
+// renamed there (e.g. Japan Fund → Travel Fund). Once goalsDB has loaded, its live name is always
+// used instead and these two literals are excluded from CAT_GRID_ORDER (see ALL_CATS below), so a
+// renamed goal's old name never resurfaces as a stale, untracked "ghost" category in Add Expense.
+const RETIRED_STATIC_CATS = ["Japan Fund","Emergency"];
+
+// Auto-assigned icon for any category/goal that isn't one of the curated ones above (Housing,
+// Food, ...) — matches on keywords in the name first (so "Travel Fund" gets ✈️, "Kitchen
+// Renovation" gets 🏠, "Gym Membership" gets 🏋️, etc.), then falls back to a stable pool picked by
+// a hash of the name, so a brand-new category or goal always gets a sensible symbol automatically,
+// with nothing for her to pick.
+const AUTO_ICON_KEYWORDS = [
+  [["gym","fitness","workout"],"🏋️"],
+  [["pet","dog","cat","vet"],"🐾"],
+  [["car","auto","vehicle","fuel"],"🚗"],
+  [["travel","trip","vacation","flight","japan","holiday"],"✈️"],
+  [["home","house","rent","renovation","furniture","kitchen"],"🏠"],
+  [["gift","present"],"🎁"],
+  [["baby","kid","child"],"🍼"],
+  [["wedding"],"💍"],
+  [["book","course","school","tuition","education","study"],"🎓"],
+  [["game","hobby"],"🎮"],
+  [["music","concert"],"🎵"],
+  [["coffee"],"☕"],
+  [["beauty","salon","spa","hair"],"💇"],
+  [["insurance"],"🛡️"],
+  [["charity","donation"],"❤️"],
+  [["invest","stock","fund"],"📈"],
+];
+const AUTO_ICON_POOL = ["🎯","🏆","💡","⭐","🔷","🌟","🎈","🔔","📦","🧩","🔑","🧭"];
+function autoIcon(name){
+  const lower = (name||"").toLowerCase();
+  const hit = AUTO_ICON_KEYWORDS.find(([words])=>words.some(w=>lower.includes(w)));
+  if(hit) return hit[1];
+  let hash=0; for(let i=0;i<lower.length;i++) hash=(hash*31+lower.charCodeAt(i))>>>0;
+  return AUTO_ICON_POOL[hash % AUTO_ICON_POOL.length];
+}
+// Symbol for any category/goal name — null for the curated built-in 22 (they already have a
+// Lucide icon or emoji of their own), or an auto-assigned emoji for anything she's added herself.
+const categoryIcon = (name) => CAT_ICON[name] ? null : autoIcon(name);
 
 // ─── UTILS ───────────────────────────────────────────────────────────────────
 const pn  = v => { const n=parseFloat(String(v||0).replace(/[,฿%\s]/g,"")); return isNaN(n)?0:n; };
@@ -587,10 +628,24 @@ export default function App(){
     .filter(g=>g.name!=="Emergency")
     .sort((a,b)=>(a.sort_order||0)-(b.sort_order||0))
     .map((g,i)=>({ id:g.id, name:g.name, target:g.target||0, current:cumulativeCatAmount(g.name), color:GOAL_COLORS[i%GOAL_COLORS.length] }));
+  // The single non-Emergency goal referenced by the compact "This Month" / "Monthly Automation"
+  // pulse widgets further down — those show one snapshot row per goal and used to hardcode "Japan
+  // Fund"/"Japan Travel Fund" by name; now they always follow whichever custom goal sorts first,
+  // so renaming or replacing it (e.g. Japan Fund → Travel Fund) keeps this row showing the real
+  // name and the real amount instead of a frozen label and a stale placeholder number.
+  const primaryGoal = customGoals[0] || null;
+  const primaryGoalThisMonth = primaryGoal ? latestMonthCatAmount(primaryGoal.name) : 0;
   // Every category that exists at all — built-ins, goals, and anything she's added or hidden
   // from Manage Categories. Used by Manage Categories itself, which needs to show hidden ones
   // too (so she can restore them).
-  const ALL_CATS = Array.from(new Set([...CAT_GRID_ORDER, ...goalsDB.map(g=>g.name), ...categoriesDB.map(c=>c.name)]));
+  // Goal names (their CURRENT, possibly-renamed names) are spliced back in right where "Japan
+  // Fund"/"Emergency" used to sit in CAT_GRID_ORDER, rather than appended at the end — so renaming
+  // a goal keeps its tile in roughly the same spot in the grid instead of jumping to the back.
+  const retiredIdx = CAT_GRID_ORDER.indexOf(RETIRED_STATIC_CATS[0]);
+  const gridBase = CAT_GRID_ORDER.filter(c=>!RETIRED_STATIC_CATS.includes(c));
+  const liveGoalNames = [emergencyGoalRow, ...customGoals].filter(Boolean).map(g=>g.name);
+  const CAT_GRID_LIVE = [...gridBase.slice(0,retiredIdx), ...liveGoalNames, ...gridBase.slice(retiredIdx)];
+  const ALL_CATS = Array.from(new Set([...CAT_GRID_LIVE, ...categoriesDB.map(c=>c.name)]));
   // Add Expense's category grid — same as above, minus anything she's hidden from Manage
   // Categories (a goal is never hidden this way — delete the goal itself to remove it).
   const CAT_GRID_ALL = ALL_CATS.filter(name=>{
@@ -653,7 +708,7 @@ export default function App(){
   const cashFlow = {
     ...cashFlowFallback,
     income: spendingMonths[spendingMonths.length-1]?.income || cashFlowFallback.income,
-    travelFund: cumulativeCatAmount("Japan Fund") || cashFlowFallback.travelFund,
+    travelFund: (primaryGoal?primaryGoal.current:0) || cashFlowFallback.travelFund,
     emergencyFund: cumulativeCatAmount("Emergency") || cashFlowFallback.emergencyFund,
   };
   const [portRaw,setPortRaw]=useState(null); const [spendRaw,setSpendRaw]=useState(null);
@@ -1442,7 +1497,7 @@ export default function App(){
     // else on this screen — replaces the old hand-typed "~2026/~2033/~2042" guesses.
     const milestoneEst = (target)=> projBase>=target ? "Reached" : (milestoneYear("Moderate",target)?`~${milestoneYear("Moderate",target)}`:`beyond ${projFinal.year}`);
     const savingsRateData = spendingMonths.map(sm=>{
-      const saved=(sm.transactions||[]).filter(t=>["Emergency","Japan Fund","Retirement"].includes(t.cat)).reduce((s,t)=>s+t.amount,0);
+      const saved=(sm.transactions||[]).filter(t=>SAVINGS_CATS_ALL.includes(t.cat)).reduce((s,t)=>s+t.amount,0);
       const g = sm.grossIncome || latestGrossIncome || DEFAULT_GROSS_INCOME;
       const p = sm.pvdEmployeePct!=null ? sm.pvdEmployeePct : (latestEmployeePvdPct!=null ? latestEmployeePvdPct : 12);
       return {m:sm.m.replace(" 2026",""),rate:Math.round((saved+g*p/100)/g*100)};
@@ -1684,7 +1739,7 @@ export default function App(){
                     {[
                       {ico:"📈",label:`DCA → ${DCA_FUND}`,     val:DCA_AMOUNT!=null?fmt(DCA_AMOUNT):"—", c:"#818CF8", note:DCA_AMOUNT!=null?"Last logged contribution":"Not logged yet"},
                       {ico:"🛡️",label:"Emergency Fund",         val:emergencyThisMonth?fmt(emergencyThisMonth):"฿8,000",  c:TH.gold,   note:"SCB auto-debit"},
-                      {ico:"✈️",label:"Japan Fund",             val:japanFundThisMonth?fmt(japanFundThisMonth):"฿15,000", c:TH.accent2,note:"KTB account"},
+                      {ico:primaryGoal?(categoryIcon(primaryGoal.name)||"🎯"):"✈️", label:primaryGoal?primaryGoal.name:"Savings Goal", val:primaryGoalThisMonth?fmt(primaryGoalThisMonth):"฿15,000", c:TH.accent2,note:"KTB account"},
                     ].map((r,i)=>(
                       <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 0",borderBottom:i<2?`1px solid ${TH.border}`:"none"}}>
                         <span style={{fontSize:16,flexShrink:0}}>{r.ico}</span>
@@ -1875,7 +1930,71 @@ export default function App(){
           )}
 
           {/* ── SPENDING TAB (desktop) ── */}
-          {tab==="spending"&&(
+          {tab==="spending"&&(spendSubTab==="managecats"?(()=>{
+            const TYPES = [{v:"fixed",l:"Fixed",c:TH.inactive},{v:"savings",l:"Savings",c:TH.green},{v:"lifestyle",l:"Lifestyle",c:TH.accent2}];
+            return(
+            <div style={{maxWidth:560}}>
+              <button onClick={()=>setSpendSubTab(null)} style={{display:"flex",alignItems:"center",gap:4,background:"transparent",border:"none",color:TH.muted,fontSize:11,fontWeight:600,cursor:"pointer",padding:"2px 0",marginBottom:10}}>
+                <ChevronRight size={13} style={{transform:"rotate(180deg)"}}/> Spending
+              </button>
+              <div style={dcStyle}>
+                <div style={{marginBottom:16}}>
+                  <div style={{fontSize:15,fontWeight:800,color:TH.text}}>Manage Categories</div>
+                  <div style={{fontSize:11,color:TH.muted}}>Fixed = bills, Savings = excluded from spend totals, Lifestyle = everyday discretionary spend</div>
+                </div>
+                {categoryForm.map((c,i)=>(
+                  <div key={c.name} style={{display:"flex",alignItems:"center",gap:8,marginBottom:9,opacity:c.hidden?0.5:1}}>
+                    <div style={{flex:1,minWidth:0,fontSize:12,color:c.locked?TH.muted:TH.text2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",textDecoration:c.hidden?"line-through":"none"}}>{c.name}</div>
+                    {c.locked?(
+                      <span style={{fontSize:9,fontWeight:700,color:TH.green,background:`${TH.green}15`,padding:"5px 10px",borderRadius:999,flexShrink:0}}>Savings (goal, locked)</span>
+                    ):c.hidden?(
+                      <button type="button" onClick={()=>toggleHideCategory(c.name)} style={{fontSize:10,fontWeight:700,color:TH.accent,background:"transparent",border:`1px solid ${TH.border}`,borderRadius:999,padding:"5px 10px",cursor:"pointer",flexShrink:0}}>Restore</button>
+                    ):(
+                      <div style={{display:"flex",gap:4,flexShrink:0,alignItems:"center"}}>
+                        {TYPES.map(t=>(
+                          <button key={t.v} type="button" onClick={()=>setCategoryForm(f=>f.map((x,j)=>j===i?{...x,type:t.v}:x))}
+                            style={{padding:"5px 9px",borderRadius:999,fontSize:9,fontWeight:700,cursor:"pointer",border:c.type===t.v?`1px solid ${t.c}`:`1px solid ${TH.border}`,background:c.type===t.v?`${t.c}1A`:"transparent",color:c.type===t.v?t.c:TH.inactive}}>{t.l}</button>
+                        ))}
+                        <button type="button" onClick={()=>toggleHideCategory(c.name)} title="Remove from Add Expense" style={{width:22,height:22,borderRadius:7,background:"transparent",border:`1px solid ${TH.border}`,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",padding:0,flexShrink:0}}>
+                          <X size={11} color={TH.muted}/>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+                <div style={{fontSize:9,color:TH.muted,marginBottom:4}}>Removing a category only hides it from Add Expense — past transactions and its type stay exactly as they are, and you can restore it here any time.</div>
+
+                <div style={{marginTop:16,paddingTop:14,borderTop:`1px solid ${TH.border}`}}>
+                  <div style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em",marginBottom:8}}>Add a new category</div>
+                  <div style={{display:"flex",gap:8,marginBottom:8}}>
+                    <input type="text" value={newCatName} onChange={e=>setNewCatName(e.target.value)} placeholder="e.g. Gym Membership"
+                      style={{flex:1,minWidth:0,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"10px 12px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
+                  </div>
+                  <div style={{display:"flex",gap:6,marginBottom:10}}>
+                    {TYPES.map(t=>(
+                      <button key={t.v} type="button" onClick={()=>setNewCatType(t.v)}
+                        style={{flex:1,padding:"8px 0",borderRadius:10,fontSize:11,fontWeight:700,cursor:"pointer",border:newCatType===t.v?`1.5px solid ${t.c}`:`1px solid ${TH.border}`,background:newCatType===t.v?`${t.c}1A`:TH.surf,color:newCatType===t.v?t.c:TH.text2}}>{t.l}</button>
+                    ))}
+                  </div>
+                  <button onClick={addCategoryRow} disabled={!newCatName.trim()} style={{width:"100%",padding:11,borderRadius:12,fontWeight:700,fontSize:12,background:newCatName.trim()?"rgba(99,102,241,0.1)":"transparent",border:`1px solid ${newCatName.trim()?TH.accent:TH.border}`,color:newCatName.trim()?TH.accent:TH.muted,cursor:newCatName.trim()?"pointer":"default"}}>
+                    + Add to list below
+                  </button>
+                </div>
+
+                {categoryFormStatus==="saving"&&<div style={{textAlign:"center",fontSize:12,color:TH.muted,margin:"14px 0 0"}}>Saving…</div>}
+                {categoryFormStatus==="success"&&<div style={{textAlign:"center",fontSize:12,color:"#4ADE80",margin:"14px 0 0"}}>✓ Saved!</div>}
+                {categoryFormStatus==="error"&&<div style={{textAlign:"center",fontSize:12,color:"#F87171",margin:"14px 0 0"}}>Failed to save — check connection</div>}
+
+                <button
+                  onClick={submitCategories}
+                  disabled={categoryFormStatus==="saving"}
+                  style={{width:"100%",padding:14,borderRadius:12,fontWeight:700,fontSize:13,background:"linear-gradient(135deg,#6366F1,#38BDF8)",border:"none",color:"white",cursor:"pointer",marginTop:14}}>
+                  Save Categories
+                </button>
+              </div>
+            </div>
+            );
+          })():(
             <div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) minmax(0,1fr)",gap:14,alignItems:"start"}}>
               <div style={{display:"flex",flexDirection:"column",gap:14}}>
                 <div style={dcStyle}>
@@ -1927,7 +2046,10 @@ export default function App(){
                 </div>
                 {/* Transactions */}
                 <div style={dcStyle}>
-                  <div style={{fontSize:12,fontWeight:700,color:TH.text,marginBottom:12}}>Transactions <span style={{fontSize:10,color:TH.muted,fontWeight:400}}>· {TXNS.length} entries</span></div>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+                    <div style={{fontSize:12,fontWeight:700,color:TH.text}}>Transactions <span style={{fontSize:10,color:TH.muted,fontWeight:400}}>· {TXNS.length} entries</span></div>
+                    <button onClick={openManageCategories} style={{display:"flex",alignItems:"center",gap:4,background:"transparent",border:`1px solid ${TH.border}`,borderRadius:9,padding:"5px 10px",fontSize:10,fontWeight:700,color:TH.muted,cursor:"pointer"}}>🏷️ Manage Categories</button>
+                  </div>
                   <div style={{maxHeight:500,overflowY:"auto"}}>
                     {spendGroups().map((g,gi)=>{
                       const isSav=g.type==="savings",isFix=g.type==="fixed",isNot=g.type==="notable";
@@ -1940,7 +2062,7 @@ export default function App(){
                             style={{display:"flex",alignItems:"center",gap:10,padding:"8px 8px",borderRadius:10,cursor:"pointer",
                             background:isSav?"rgba(74,222,128,0.05)":isNot?"rgba(251,191,36,0.04)":"transparent",
                             border:`1px solid ${isSav?"rgba(74,222,128,0.15)":isNot?"rgba(251,191,36,0.15)":TH.border}`}}>
-                            <div style={{width:28,height:28,borderRadius:8,background:`${CAT_COLOR[g.cat]||TH.accent}15`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,flexShrink:0}}>{CAT_ICON[g.cat]||"💳"}</div>
+                            <div style={{width:28,height:28,borderRadius:8,background:`${CAT_COLOR[g.cat]||TH.accent}15`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,flexShrink:0}}>{CAT_ICON[g.cat]||categoryIcon(g.cat)||"💳"}</div>
                             <div style={{flex:1}}>
                               <div style={{display:"flex",alignItems:"center",gap:5}}>
                                 <span style={{fontSize:11,fontWeight:700,color:TH.text}}>{g.cat}</span>
@@ -2029,10 +2151,60 @@ export default function App(){
                 </div>
               </div>
             </div>
-          )}
+          ))}
 
           {/* ── PLANNING TAB (desktop) ── */}
-          {tab==="planning"&&(
+          {tab==="planning"&&(planSubTab==="addgoal"?(()=>{
+            const targetNum = parseFloat(goalForm.target)||0;
+            const canSave = goalFormIsEmergency ? true : (goalForm.name.trim() && targetNum>0);
+            return(
+            <div style={{maxWidth:480}}>
+              <button onClick={()=>setPlanSubTab(null)} style={{display:"flex",alignItems:"center",gap:4,background:"transparent",border:"none",color:TH.muted,fontSize:11,fontWeight:600,cursor:"pointer",padding:"2px 0",marginBottom:10}}>
+                <ChevronRight size={13} style={{transform:"rotate(180deg)"}}/> Plan
+              </button>
+              <div style={dcStyle}>
+                <div style={{marginBottom:16}}>
+                  <div style={{fontSize:15,fontWeight:800,color:TH.text}}>{goalForm.id?"Edit Goal":"Add Goal"}</div>
+                  <div style={{fontSize:11,color:TH.muted}}>{goalFormIsEmergency?"Override the auto-calculated target, or leave blank to keep using months-of-coverage":"Set a name and target — it shows up as a category in Add Expense right away"}</div>
+                </div>
+
+                <div style={{marginBottom:14}}>
+                  <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Name</label>
+                  <input type="text" value={goalForm.name} disabled={goalFormIsEmergency}
+                    onChange={e=>setGoalForm(f=>({...f,name:e.target.value}))} placeholder="e.g. Kitchen Renovation"
+                    style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 12px",fontSize:13,color:goalFormIsEmergency?TH.muted:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
+                  {goalFormOriginalName&&goalFormOriginalName!==goalForm.name.trim()&&!goalFormIsEmergency&&(
+                    <div style={{marginTop:5,fontSize:10,color:TH.muted}}>Past transactions logged under "{goalFormOriginalName}" will be relabeled to the new name.</div>
+                  )}
+                </div>
+
+                <div style={{marginBottom:14}}>
+                  <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Target (฿){goalFormIsEmergency?" — optional":""}</label>
+                  <input type="number" min="0" step="1000" inputMode="decimal" value={goalForm.target}
+                    onChange={e=>setGoalForm(f=>({...f,target:e.target.value}))}
+                    placeholder={goalFormIsEmergency?"auto (months of coverage)":"e.g. 200000"}
+                    style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 12px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
+                </div>
+
+                {goalFormStatus==="saving"&&<div style={{textAlign:"center",fontSize:12,color:TH.muted,marginBottom:10}}>Saving…</div>}
+                {goalFormStatus==="success"&&<div style={{textAlign:"center",fontSize:12,color:"#4ADE80",marginBottom:10}}>✓ Saved!</div>}
+                {goalFormStatus==="error"&&<div style={{textAlign:"center",fontSize:12,color:"#F87171",marginBottom:10}}>Failed to save — check connection</div>}
+
+                <button
+                  onClick={submitGoal}
+                  disabled={!canSave||goalFormStatus==="saving"}
+                  style={{width:"100%",padding:14,borderRadius:12,fontWeight:700,fontSize:13,background:canSave?"linear-gradient(135deg,#6366F1,#38BDF8)":"rgba(255,255,255,0.06)",border:"none",color:canSave?"white":"#4B5563",cursor:canSave?"pointer":"default"}}>
+                  {goalForm.id?"Save Changes":"Add Goal"}
+                </button>
+                {goalForm.id&&!goalFormIsEmergency&&(
+                  <button onClick={deleteGoal} disabled={goalFormStatus==="saving"} style={{width:"100%",padding:12,borderRadius:12,fontWeight:700,fontSize:12,background:"transparent",border:`1px solid ${TH.border}`,color:TH.red,cursor:"pointer",marginTop:10}}>
+                    Delete Goal
+                  </button>
+                )}
+              </div>
+            </div>
+            );
+          })():(
             <div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) minmax(0,1fr) minmax(0,1fr)",gap:14,alignItems:"start"}}>
               {/* Col 1 — Automation + Goals */}
               <div style={{display:"flex",flexDirection:"column",gap:14}}>
@@ -2041,7 +2213,7 @@ export default function App(){
                   {[
                     {dot:TH.gold,    label:"Emergency Fund",     amt:emergencyThisMonth?fmt(emergencyThisMonth):"฿8,000",  tag:"PHASE 1"},
                     {dot:"#818CF8",  label:`DCA → ${DCA_FUND}`, amt:DCA_AMOUNT!=null?fmt(DCA_AMOUNT):"—", tag:"THIS MONTH"},
-                    {dot:TH.accent2, label:"Japan Travel Fund",  amt:japanFundThisMonth?fmt(japanFundThisMonth):"฿15,000", tag:"KTB"},
+                    {dot:TH.accent2, label:primaryGoal?primaryGoal.name:"Savings Goal",  amt:primaryGoalThisMonth?fmt(primaryGoalThisMonth):"฿15,000", tag:"KTB"},
                     {dot:"#94A3B8",  label:"Fixed Bills",        amt:fmt(FIXED_BILLS_THIS_MONTH), tag:"AUTO"},
                     {dot:"#94A3B8",  label:"Spending Buffer",    amt:"฿5,000",  tag:"DAILY"},
                   ].map((r,i)=>(
@@ -2054,10 +2226,23 @@ export default function App(){
                   ))}
                 </div>
                 <div style={dcStyle}>
-                  <div style={{fontSize:12,fontWeight:700,color:TH.text,marginBottom:12}}>Goals</div>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+                    <div style={{fontSize:12,fontWeight:700,color:TH.text}}>Goals</div>
+                    <button onClick={openAddGoal} style={{display:"flex",alignItems:"center",gap:4,background:"rgba(99,102,241,0.1)",border:"1px solid rgba(99,102,241,0.2)",borderRadius:9,padding:"5px 10px",fontSize:10,fontWeight:700,color:TH.accent,cursor:"pointer"}}><Plus size={11}/> Goal</button>
+                  </div>
                   {goalCards.map((g,i)=>(
                     <div key={g.label} style={{marginBottom:i<goalCards.length-1?14:0}}>
-                      <div style={{display:"flex",justifyContent:"space-between",fontSize:11,marginBottom:3}}><span style={{fontWeight:600,color:TH.text2}}>{g.label}</span><span style={{fontWeight:700,color:g.color,fontFamily:TH.mono}}>{g.pct.toFixed(0)}%</span></div>
+                      <div style={{display:"flex",justifyContent:"space-between",fontSize:11,marginBottom:3}}>
+                        <span style={{display:"flex",alignItems:"center",gap:5,fontWeight:600,color:TH.text2}}>
+                          {g.label}
+                          {g.goalRow&&(
+                            <button onClick={()=>openEditGoal(g.goalRow)} style={{width:16,height:16,borderRadius:5,background:"transparent",border:"none",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",padding:0,flexShrink:0}}>
+                              <Pencil size={9} color={TH.muted}/>
+                            </button>
+                          )}
+                        </span>
+                        <span style={{fontWeight:700,color:g.color,fontFamily:TH.mono}}>{g.pct.toFixed(0)}%</span>
+                      </div>
                       <div style={{fontSize:9,color:TH.muted,marginBottom:5}}>{g.note}</div>
                       <div style={{height:5,background:`${g.color}18`,borderRadius:999,overflow:"hidden"}}><div style={{height:"100%",width:`${g.pct}%`,background:g.color,borderRadius:999}}/></div>
                     </div>
@@ -2144,7 +2329,7 @@ export default function App(){
                 </div>
               </div>
             </div>
-          )}
+          ))}
 
           {/* ── WEALTH TAB (desktop) ── */}
           {tab==="wealth"&&(
@@ -2668,7 +2853,7 @@ export default function App(){
             </div>
             <div style={{borderTop:`1px solid ${TH.border}`,paddingTop:10}}>
               {[
-                {l:"Travel Fund",v:cashFlow.travelFund, c:TH.accent2},
+                {l:primaryGoal?primaryGoal.name:"Travel Fund",v:cashFlow.travelFund, c:TH.accent2},
                 {l:"Invested",   v:cashFlow.investments,c:TH.accent2},
                 {l:"Savings Rate",v:null,pct:`${SAVINGS_RATE}%`,c:"#38BDF8"},
               ].map((s,i)=>(
@@ -3437,7 +3622,7 @@ export default function App(){
                 const isSav=g.type==="savings",isFix=g.type==="fixed",isNot=g.type==="notable";
                 const amtC=isSav?TH.green:isNot?"#FBBF24":TH.text2;
                 const CAT_ICON={Housing:"🏠",Food:"🍽️",Mom:"👩",Gas:"⛽","Japan Fund":"✈️",Retirement:"💰",Emergency:"🛡️",Cat:"🐱",Subscriptions:"📺",Phone:"📱",Internet:"🌐",Installment:"📋",Misc:"💳"};
-                const note=g.cat==="Retirement"?"Monthly investment":g.cat==="Japan Fund"?"Travel fund":g.cat==="Emergency"?"Emergency top-up":g.type==="notable"?`${((g.total/CM.spent)*100).toFixed(0)}% of budget`:g.type==="fixed"?"Fixed expense":g.txns[0]?.desc||"";
+                const note=g.cat==="Retirement"?"Monthly investment":g.cat==="Emergency"?"Emergency top-up":goalsDB.some(gg=>gg.name===g.cat)?"Goal contribution":g.type==="notable"?`${((g.total/CM.spent)*100).toFixed(0)}% of budget`:g.type==="fixed"?"Fixed expense":g.txns[0]?.desc||"";
                 const multi=g.txns.length>1;
                 return(
                   <div key={gi} style={{marginBottom:5}}>
@@ -3445,7 +3630,7 @@ export default function App(){
                       style={{display:"flex",alignItems:"center",gap:9,padding:"9px 8px",borderRadius:12,
                         background:isSav?"rgba(74,222,128,0.05)":isNot?"rgba(251,191,36,0.04)":"transparent",
                         border:`1px solid ${isSav?"rgba(74,222,128,0.15)":isNot?"rgba(251,191,36,0.15)":TH.border}`,cursor:"pointer"}}>
-                      <div style={{width:33,height:33,borderRadius:10,background:isSav?"rgba(74,222,128,0.12)":isFix?"rgba(255,255,255,0.05)":`${CAT_COLOR[g.cat]||TH.accent}15`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:15,flexShrink:0}}>{CAT_ICON[g.cat]||"💳"}</div>
+                      <div style={{width:33,height:33,borderRadius:10,background:isSav?"rgba(74,222,128,0.12)":isFix?"rgba(255,255,255,0.05)":`${CAT_COLOR[g.cat]||TH.accent}15`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:15,flexShrink:0}}>{CAT_ICON[g.cat]||categoryIcon(g.cat)||"💳"}</div>
                       <div style={{flex:1,minWidth:0}}>
                         <div style={{display:"flex",alignItems:"center",gap:5,flexWrap:"wrap"}}>
                           <span style={{fontSize:12,fontWeight:700}}>{g.cat}</span>
@@ -3515,14 +3700,15 @@ export default function App(){
             <div style={{fontSize:11,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em",marginBottom:9}}>Category</div>
             <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:18}}>
               {CAT_GRID_ALL.map(c=>{
-                const Icon = CAT_ICON[c]||MoreHorizontal;
+                const Icon = CAT_ICON[c];
+                const emoji = Icon ? null : categoryIcon(c);
                 const color = CAT_COLOR[c]||TH.accent;
                 const active = expenseForm.category===c;
                 return (
                   <button key={c} type="button" onClick={()=>setExpenseForm(f=>({...f,category:c}))}
                     style={{display:"flex",flexDirection:"column",alignItems:"center",gap:7,padding:"13px 4px",borderRadius:14,border:active?`1.5px solid ${color}`:`1px solid ${TH.border}`,background:active?`${color}1A`:TH.surf,cursor:"pointer",transition:"all .12s"}}>
                     <div style={{width:42,height:42,borderRadius:12,background:`${color}22`,display:"flex",alignItems:"center",justifyContent:"center"}}>
-                      <Icon size={20} color={color}/>
+                      {Icon ? <Icon size={20} color={color}/> : <span style={{fontSize:20,lineHeight:1}}>{emoji}</span>}
                     </div>
                     <div style={{fontSize:13,fontWeight:700,color:active?TH.text:TH.text2,textAlign:"center",lineHeight:1.2}}>{c}</div>
                   </button>
@@ -4027,7 +4213,7 @@ export default function App(){
             {[
               {dot:TH.gold,    label:"Emergency Fund",     amt:emergencyThisMonth?fmt(emergencyThisMonth):"฿8,000",  tag:"PHASE 1",   tc:TH.gold},
               {dot:"#818CF8", label:`DCA → ${DCA_FUND}`, amt:DCA_AMOUNT!=null?fmt(DCA_AMOUNT):"—", tag:"THIS MONTH",tc:"#818CF8"},
-              {dot:TH.accent2, label:"Japan Travel Fund",  amt:japanFundThisMonth?fmt(japanFundThisMonth):"฿15,000", tag:"KTB",       tc:TH.accent2},
+              {dot:TH.accent2, label:primaryGoal?primaryGoal.name:"Savings Goal",  amt:primaryGoalThisMonth?fmt(primaryGoalThisMonth):"฿15,000", tag:"KTB",       tc:TH.accent2},
               {dot:"#94A3B8", label:"Fixed Bills (auto)", amt:fmt(FIXED_BILLS_THIS_MONTH), tag:"AUTO",      tc:"#94A3B8"},
               {dot:"#94A3B8", label:"Spending Buffer",    amt:"฿5,000",  tag:"DAILY",     tc:"#94A3B8"},
             ].map((r,i)=>(
