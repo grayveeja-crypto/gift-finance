@@ -143,6 +143,16 @@ function scoreToGrade(pct){
 // snapshot before that year (i.e. it was opened/started during the year, so everything logged
 // this year counts as new money in). Only counts increases, never decreases (a value dropping
 // isn't a withdrawal in this dataset, usually just a NAV move alongside cost staying flat).
+// Most recent month-over-month increase in one fund's cost basis — the real amount actually
+// added last time it was logged. Used by the "DCA →" widget instead of a hardcoded "฿10,000"
+// that had no connection to what she's actually contributing.
+function lastContribution(rows, code){
+  const sorted = rows.filter(r=>r.code===code && r.month).slice().sort((a,b)=>monthRank(a.month)-monthRank(b.month));
+  if(sorted.length<2) return null;
+  const diff = (sorted[sorted.length-1].cost||0) - (sorted[sorted.length-2].cost||0);
+  return diff>0 ? diff : null;
+}
+
 function annualContribution(rows, key, field, year){
   const byKey = {};
   rows.forEach(r=>{ if(!r.month) return; (byKey[r[key]]=byKey[r[key]]||[]).push(r); });
@@ -519,6 +529,9 @@ export default function App(){
   const [debts,setDebts]=useState(FB_D); // latest month per debt name — used everywhere as "current" debt
   const [debtHistory,setDebtHistory]=useState([]); // every logged month, for the payoff trend + month picker
   const [targetAllocDB,setTargetAllocDB]=useState([]); // her real saved target allocation, from Supabase; empty until she's saved one (or the table doesn't exist yet), in which case targetAlloc below falls back to FB_T
+  // Editable short-term goals (Japan Fund, Emergency's target override, any custom goal she adds
+  // like Kitchen Renovation) — from Supabase; empty until the goals table exists/has rows.
+  const [goalsDB,setGoalsDB]=useState([]);
   // Emergency-fund target, in months of real average spend — her own choice (Wealth > Liquidity
   // lets her change it), remembered locally per device like the profile photo.
   const [efTargetMonths,setEfTargetMonths]=useState(()=>{
@@ -558,6 +571,26 @@ export default function App(){
   // Sum of every transaction in `cat` across all loaded months (running total)
   const cumulativeCatAmount = cat => spendingMonths.reduce((s,m)=>s+(m.transactions||[]).filter(t=>t.cat===cat).reduce((a,t)=>a+t.amount,0),0);
   const japanFundThisMonth = latestMonthCatAmount("Japan Fund");
+  const emergencyThisMonth = latestMonthCatAmount("Emergency");
+  // ─── GOALS (Supabase `goals` table) ─────────────────────────────────────────
+  // Every category-linked goal you've saved (Japan Fund, any new one like Kitchen Renovation) —
+  // its "current" is just the live sum of transactions logged under a matching category, same
+  // mechanic Japan Fund always used. Emergency lives in the same table too, but only to carry an
+  // optional target override (see EF_TARGET below) — it's rendered separately, not in this list.
+  const GOAL_COLORS = ["#FBBF24","#34D399","#F472B6","#818CF8","#FB923C","#67E8F9"];
+  const emergencyGoalRow = goalsDB.find(g=>g.name==="Emergency")||null;
+  const customGoals = goalsDB
+    .filter(g=>g.name!=="Emergency")
+    .sort((a,b)=>(a.sort_order||0)-(b.sort_order||0))
+    .map((g,i)=>({ id:g.id, name:g.name, target:g.target||0, current:cumulativeCatAmount(g.name), color:GOAL_COLORS[i%GOAL_COLORS.length] }));
+  // Every category any goal is linked to (plus the built-ins) counts as savings, not spending —
+  // replaces the old fixed SAVINGS_CATS list so a brand-new goal is excluded from spend totals
+  // automatically, with no code change needed.
+  const SAVINGS_CATS_ALL = Array.from(new Set([...SAVINGS_CATS, ...goalsDB.map(g=>g.name)]));
+  // Add Expense's category grid — the built-in categories plus any custom goal category that
+  // isn't already one of them (e.g. "Kitchen Renovation"), so a new goal is selectable there
+  // the moment it's created.
+  const CAT_GRID_ALL = [...CAT_GRID_ORDER, ...goalsDB.map(g=>g.name).filter(n=>!CAT_GRID_ORDER.includes(n))];
   // Most recent month that actually has these fields set in Supabase, so a brand-new month row
   // (or one still on fallback data) inherits the last real figure instead of jumping straight to
   // the hardcoded default. Employee & employer PVD% are tracked separately since they diverge
@@ -686,6 +719,68 @@ export default function App(){
     }catch(e){
       setTargetFormStatus("error");
       setTimeout(()=>setTargetFormStatus(null),3000);
+    }
+  }
+
+  // ─── GOALS EDITOR (upserts into the goals table) ──────────────────────────────────────
+  // Standing tab page (planSubTab==="addgoal"), same pattern as Log Fund / Edit Target Allocation.
+  // Renaming a goal also relabels its past transactions (by category text) to the new name in the
+  // same save, so history keeps counting toward it — see schema.sql for why this is safe without
+  // a separate id column on transactions. Emergency's row is special: its name is locked (renaming
+  // it would break the dedicated Emergency Fund card, which looks up the "Emergency" category by
+  // name) and a blank target means "keep using the auto months-of-coverage formula".
+  const [goalForm,setGoalForm]=useState({id:null,name:"",target:""});
+  const [goalFormStatus,setGoalFormStatus]=useState(null); // null | "saving" | "success" | "error"
+  const [goalFormOriginalName,setGoalFormOriginalName]=useState(null);
+  function openAddGoal(){
+    setGoalForm({id:null,name:"",target:""});
+    setGoalFormOriginalName(null);
+    setGoalFormStatus(null);
+    setTab("planning"); setPlanSubTab("addgoal");
+  }
+  function openEditGoal(g){
+    setGoalForm({id:g.id, name:g.name, target: g.target!=null&&g.target>0 ? String(g.target) : ""});
+    setGoalFormOriginalName(g.name);
+    setGoalFormStatus(null);
+    setTab("planning"); setPlanSubTab("addgoal");
+  }
+  const goalFormIsEmergency = goalFormOriginalName==="Emergency";
+  async function submitGoal(){
+    const name = goalForm.name.trim();
+    if(!goalFormIsEmergency && !name) return;
+    const targetNum = goalForm.target.trim()==="" ? null : parseFloat(goalForm.target)||0;
+    if(!goalFormIsEmergency && (!targetNum||targetNum<=0)) return;
+    setGoalFormStatus("saving");
+    try{
+      if(goalForm.id){
+        const { error } = await supabase.from("goals").update({ name, target: targetNum }).eq("id", goalForm.id);
+        if(error) throw error;
+      }else{
+        const { error } = await supabase.from("goals").insert({ name, target: targetNum });
+        if(error) throw error;
+      }
+      if(goalFormOriginalName && goalFormOriginalName!==name){
+        await supabase.from("transactions").update({ category: name }).eq("category", goalFormOriginalName);
+      }
+      setGoalFormStatus("success");
+      setTimeout(()=>{setGoalFormStatus(null); setPlanSubTab("goals");},1000);
+      fetchAll(true);
+    }catch(e){
+      setGoalFormStatus("error");
+      setTimeout(()=>setGoalFormStatus(null),3000);
+    }
+  }
+  async function deleteGoal(){
+    if(!goalForm.id) return;
+    setGoalFormStatus("saving");
+    try{
+      const { error } = await supabase.from("goals").delete().eq("id", goalForm.id);
+      if(error) throw error;
+      setPlanSubTab("goals");
+      fetchAll(true);
+    }catch(e){
+      setGoalFormStatus("error");
+      setTimeout(()=>setGoalFormStatus(null),3000);
     }
   }
 
@@ -948,6 +1043,11 @@ export default function App(){
       if(data?.length) setTargetAllocDB(data.map(r=>({cls:r.cls, target:pn(r.target)})));
     }catch(e){ /* table may not exist yet (migration not run) — targetAlloc below just falls back to FB_T */ }
     try{
+      const { data, error } = await supabase.from("goals").select("*");
+      if(error) throw error;
+      if(data) setGoalsDB(data.map(r=>({id:r.id, name:r.name, target: r.target==null?null:pn(r.target), sort_order:r.sort_order||0})));
+    }catch(e){ /* table may not exist yet (migration not run) — Goals card falls back to the old fixed Japan Fund figure */ }
+    try{
       const [{ data: spendRows, error: spendErr }, { data: txnRows, error: txnErr }] = await Promise.all([
         supabase.from("spending").select("*"),
         supabase.from("transactions").select("*").order("date",{ascending:true}),
@@ -1122,6 +1222,7 @@ export default function App(){
   const CM       = spendingMonths[selMonth]||spendingMonths[spendingMonths.length-1]||FB_SP[1];
   const INCOME   = CM.income||cashFlow.income||75400;
   const TXNS     = [...(CM.transactions||[])].reverse();
+  const FIXED_BILLS_THIS_MONTH = TXNS.filter(t=>FIXED_CATS.includes(t.cat)).reduce((s,t)=>s+t.amount,0);
   const rawCats  = CM.cats&&Object.keys(CM.cats).length>0?CM.cats:(CM.transactions||[]).reduce((acc,t)=>{acc[t.cat]=(acc[t.cat]||0)+t.amount;return acc;},{});
   const CAT_DATA = Object.entries(rawCats).filter(([,v])=>v>0).map(([k,v])=>({name:k,v})).sort((a,b)=>b.v-a.v);
   const isLive   = dataSource==="live";
@@ -1129,13 +1230,16 @@ export default function App(){
   const thisMonth   = new Date().getMonth()+1;
   const DCA_FUND    = thisMonth%2!==0?"SCBRMS&P500":"SCBRMWORLD(A)";
   const DCA_NEXT    = DCA_FUND==="SCBRMS&P500"?"SCBRMWORLD(A)":"SCBRMS&P500";
+  // Real amount last contributed to whichever fund is this month's DCA target, instead of a
+  // fixed "฿10,000" — null when there's not yet 2 logged months to diff against.
+  const DCA_AMOUNT  = lastContribution(holdingsHistory, DCA_FUND);
   const EF_BAL      = cashFlow.emergencyFund||0;
   // Real average monthly spend — every logged month's total minus that month's own savings/
   // investment transfers (Japan Fund, Retirement, Emergency, Investment), since those are money
   // being set aside, not spent. This is what "months of coverage" should actually be measured
   // against, and what the emergency-fund target below is built from.
   const monthlyEssentialSpend = spendingMonths.map(m=>{
-    const savings = (m.transactions||[]).filter(t=>SAVINGS_CATS.includes(t.cat)).reduce((s,t)=>s+t.amount,0);
+    const savings = (m.transactions||[]).filter(t=>SAVINGS_CATS_ALL.includes(t.cat)).reduce((s,t)=>s+t.amount,0);
     return (m.spent||0) - savings;
   }).filter(v=>v>0);
   const avgMonthlySpend = monthlyEssentialSpend.length ? monthlyEssentialSpend.reduce((s,v)=>s+v,0)/monthlyEssentialSpend.length : 0;
@@ -1146,10 +1250,20 @@ export default function App(){
   // Target = her chosen number of months x real average spend, so it moves with her actual
   // cost of living instead of a number typed in once. Falls back to the old fixed figure until
   // there's enough spending history to compute a real average.
-  const EF_TARGET   = avgMonthlySpend>0 ? Math.round(efTargetMonths*avgMonthlySpend) : 143000;
+  const EF_TARGET   = (emergencyGoalRow?.target>0) ? emergencyGoalRow.target : (avgMonthlySpend>0 ? Math.round(efTargetMonths*avgMonthlySpend) : 143000);
   const EF_PCT      = Math.min(100,EF_BAL/EF_TARGET*100);
   const EF_MO_LEFT  = EF_BAL<EF_TARGET?Math.ceil((EF_TARGET-EF_BAL)/avgEfContribution):0;
   const EF_MONTHS_COVERED = avgMonthlySpend>0 ? EF_BAL/avgMonthlySpend : 0;
+  // The "Goals" card list shown in 3 places (desktop overview, mobile hub, Plan > Goals detail) —
+  // Emergency Fund and Retirement stay their own special cases (portfolio-value/formula-based,
+  // not category sums), every custom goal (Japan Fund, Kitchen Renovation, ...) comes from the
+  // live goals table. goalRow carries the editable Supabase row for the pencil icon; null means
+  // "not editable here" (Retirement's ฿5M stays fixed — see schema.sql for why).
+  const goalCards = [
+    {label:"Emergency Fund", pct:EF_PCT, color:TH.gold, note:`${fmt(EF_BAL)} / ${fmt(EF_TARGET)}`, goalRow:emergencyGoalRow},
+    {label:"Retirement", pct:Math.min(100,(PERSONAL+RETIRE)/5000000*100), color:TH.accent, note:`${fmt(PERSONAL+RETIRE)} / ฿5M`, goalRow:null},
+    ...customGoals.map(g=>({ label:g.name, pct: g.target>0?Math.min(100,g.current/g.target*100):0, color:g.color, note:`${fmt(g.current)} / ${fmt(g.target)}`, goalRow:g })),
+  ];
   // Savings Rate = deliberate savings / gross income
   // Includes: spending sheet savings categories + PVD employee % (deducted from gross)
   // Gross income & PVD% now live per-month from Supabase (spending.gross_income / spending.pvd_pct),
@@ -1160,8 +1274,7 @@ export default function App(){
   const TAX_BRACKET_PCT   = CM.taxBracketPct!=null ? CM.taxBracketPct : (latestTaxBracketPct!=null ? latestTaxBracketPct : 15);
   const PVD_EMPLOYEE      = Math.round(GROSS_INCOME * PVD_EMPLOYEE_PCT / 100);
   const PVD_EMPLOYER      = Math.round(GROSS_INCOME * PVD_EMPLOYER_PCT / 100);
-  const SAVINGS_CATS_TXN = ["Emergency","Japan Fund","Retirement"];
-  const txnSavings = (CM.transactions||[]).filter(t=>SAVINGS_CATS_TXN.includes(t.cat)).reduce((s,t)=>s+t.amount,0);
+  const txnSavings = (CM.transactions||[]).filter(t=>SAVINGS_CATS_ALL.includes(t.cat)).reduce((s,t)=>s+t.amount,0);
   // Savings Rate = your own deliberate savings only (txn savings + your PVD deduction), not the employer match
   const SAVINGS_RATE = Math.round((txnSavings + PVD_EMPLOYEE) / GROSS_INCOME * 100);
   const sparkHist   = history.map(h=>({v:h.portfolio-h.debt}));
@@ -1169,7 +1282,7 @@ export default function App(){
   const spendGroups=()=>{
     const g={};
     TXNS.forEach(t=>{
-      if(!g[t.cat]) g[t.cat]={cat:t.cat,txns:[],total:0,type:SAVINGS_CATS.includes(t.cat)?"savings":FIXED_CATS.includes(t.cat)?"fixed":t.amount>=5000?"notable":"normal"};
+      if(!g[t.cat]) g[t.cat]={cat:t.cat,txns:[],total:0,type:SAVINGS_CATS_ALL.includes(t.cat)?"savings":FIXED_CATS.includes(t.cat)?"fixed":t.amount>=5000?"notable":"normal"};
       g[t.cat].txns.push(t); g[t.cat].total+=t.amount;
     });
     const ORDER={savings:0,fixed:1,notable:2,normal:3};
@@ -1489,9 +1602,9 @@ export default function App(){
                   <div style={dcStyle}>
                     <div style={{fontSize:12,fontWeight:700,color:TH.text,marginBottom:12}}>This Month</div>
                     {[
-                      {ico:"📈",label:`DCA → ${DCA_FUND}`,     val:"฿10,000", c:"#818CF8", note:"Alternating monthly"},
-                      {ico:"🛡️",label:"Emergency Fund",         val:"฿8,000",  c:TH.gold,   note:"SCB auto-debit"},
-                      {ico:"✈️",label:"Japan Fund",             val:"฿15,000", c:TH.accent2,note:"KTB account"},
+                      {ico:"📈",label:`DCA → ${DCA_FUND}`,     val:DCA_AMOUNT!=null?fmt(DCA_AMOUNT):"—", c:"#818CF8", note:DCA_AMOUNT!=null?"Last logged contribution":"Not logged yet"},
+                      {ico:"🛡️",label:"Emergency Fund",         val:emergencyThisMonth?fmt(emergencyThisMonth):"฿8,000",  c:TH.gold,   note:"SCB auto-debit"},
+                      {ico:"✈️",label:"Japan Fund",             val:japanFundThisMonth?fmt(japanFundThisMonth):"฿15,000", c:TH.accent2,note:"KTB account"},
                     ].map((r,i)=>(
                       <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 0",borderBottom:i<2?`1px solid ${TH.border}`:"none"}}>
                         <span style={{fontSize:16,flexShrink:0}}>{r.ico}</span>
@@ -1512,12 +1625,8 @@ export default function App(){
                   {/* Goals */}
                   <div style={dcStyle}>
                     <div style={{fontSize:12,fontWeight:700,color:TH.text,marginBottom:12}}>Goals</div>
-                    {[
-                      {label:"Emergency Fund", pct:EF_PCT,                                    color:TH.gold,   note:`${fmt(EF_BAL)} / ${fmt(EF_TARGET)}`},
-                      {label:"Retirement",     pct:Math.min(100,(PERSONAL+RETIRE)/5000000*100), color:TH.accent, note:`${fmt(PERSONAL+RETIRE)} / ฿5M`},
-                      {label:"Japan Fund",     pct:Math.min(100,(cashFlow.travelFund||0)/120000*100), color:TH.accent2, note:`${fmt(cashFlow.travelFund||0)} / ฿120K`},
-                    ].map((g,i)=>(
-                      <div key={i} style={{marginBottom:i<2?12:0}}>
+                    {goalCards.map((g,i)=>(
+                      <div key={g.label} style={{marginBottom:i<goalCards.length-1?12:0}}>
                         <div style={{display:"flex",justifyContent:"space-between",fontSize:11,marginBottom:3}}>
                           <span style={{fontWeight:600,color:TH.text2}}>{g.label}</span>
                           <span style={{fontWeight:700,color:g.color,fontFamily:TH.mono}}>{g.pct.toFixed(0)}%</span>
@@ -1783,7 +1892,7 @@ export default function App(){
                 <div style={dcStyle}>
                   <div style={{fontSize:12,fontWeight:700,color:TH.text,marginBottom:12}}>Summary</div>
                   {(()=>{
-                    const sav=TXNS.filter(t=>SAVINGS_CATS.includes(t.cat)).reduce((s,t)=>s+t.amount,0);
+                    const sav=TXNS.filter(t=>SAVINGS_CATS_ALL.includes(t.cat)).reduce((s,t)=>s+t.amount,0);
                     const fix=TXNS.filter(t=>FIXED_CATS.includes(t.cat)).reduce((s,t)=>s+t.amount,0);
                     const disc=(CM.spent||0)-sav-fix;
                     return(
@@ -1850,10 +1959,10 @@ export default function App(){
                 <div style={dcStyle}>
                   <div style={{fontSize:12,fontWeight:700,color:TH.text,marginBottom:12}}>Monthly Automation</div>
                   {[
-                    {dot:TH.gold,    label:"Emergency Fund",     amt:"฿8,000",  tag:"PHASE 1"},
-                    {dot:"#818CF8",  label:`DCA → ${DCA_FUND}`, amt:"฿10,000", tag:"THIS MONTH"},
+                    {dot:TH.gold,    label:"Emergency Fund",     amt:emergencyThisMonth?fmt(emergencyThisMonth):"฿8,000",  tag:"PHASE 1"},
+                    {dot:"#818CF8",  label:`DCA → ${DCA_FUND}`, amt:DCA_AMOUNT!=null?fmt(DCA_AMOUNT):"—", tag:"THIS MONTH"},
                     {dot:TH.accent2, label:"Japan Travel Fund",  amt:japanFundThisMonth?fmt(japanFundThisMonth):"฿15,000", tag:"KTB"},
-                    {dot:"#94A3B8",  label:"Fixed Bills",        amt:"฿35,816", tag:"AUTO"},
+                    {dot:"#94A3B8",  label:"Fixed Bills",        amt:fmt(FIXED_BILLS_THIS_MONTH), tag:"AUTO"},
                     {dot:"#94A3B8",  label:"Spending Buffer",    amt:"฿5,000",  tag:"DAILY"},
                   ].map((r,i)=>(
                     <div key={i} style={{display:"flex",alignItems:"center",gap:9,marginBottom:i<4?8:0}}>
@@ -1866,12 +1975,8 @@ export default function App(){
                 </div>
                 <div style={dcStyle}>
                   <div style={{fontSize:12,fontWeight:700,color:TH.text,marginBottom:12}}>Goals</div>
-                  {[
-                    {label:"Emergency Fund",pct:EF_PCT,color:TH.gold,note:`${fmt(EF_BAL)} / ${fmt(EF_TARGET)}`},
-                    {label:"Retirement",pct:Math.min(100,(PERSONAL+RETIRE)/5000000*100),color:TH.accent,note:`${fmt(PERSONAL)} + ${fmt(RETIRE)} = ${fmt(PERSONAL+RETIRE)} / ฿5M`},
-                    {label:"Japan Fund",pct:Math.min(100,(cashFlow.travelFund||0)/120000*100),color:TH.accent2,note:`${fmt(cashFlow.travelFund||0)} / ฿120K`},
-                  ].map((g,i)=>(
-                    <div key={i} style={{marginBottom:i<2?14:0}}>
+                  {goalCards.map((g,i)=>(
+                    <div key={g.label} style={{marginBottom:i<goalCards.length-1?14:0}}>
                       <div style={{display:"flex",justifyContent:"space-between",fontSize:11,marginBottom:3}}><span style={{fontWeight:600,color:TH.text2}}>{g.label}</span><span style={{fontWeight:700,color:g.color,fontFamily:TH.mono}}>{g.pct.toFixed(0)}%</span></div>
                       <div style={{fontSize:9,color:TH.muted,marginBottom:5}}>{g.note}</div>
                       <div style={{height:5,background:`${g.color}18`,borderRadius:999,overflow:"hidden"}}><div style={{height:"100%",width:`${g.pct}%`,background:g.color,borderRadius:999}}/></div>
@@ -3179,7 +3284,7 @@ export default function App(){
           {(()=>{
             const priorMonths = spendingMonths.slice(0, selMonth);
             const budgetCats = Array.from(new Set(spendingMonths.flatMap(m=>Object.keys(m.cats||{}))))
-              .filter(c=>!SAVINGS_CATS.includes(c));
+              .filter(c=>!SAVINGS_CATS_ALL.includes(c));
             const rows = budgetCats.map(c=>{
               const priorVals = priorMonths.map(m=>m.cats?.[c]).filter(v=>v>0);
               const rawAvg = priorVals.length ? priorVals.reduce((s,v)=>s+v,0)/priorVals.length : null;
@@ -3283,7 +3388,7 @@ export default function App(){
               })}
               <div style={{marginTop:11,padding:"10px 12px",background:`${TH.accent}08`,borderRadius:11,border:`1px solid ${TH.accent}20`}}>
                 {(()=>{
-                  const sav=TXNS.filter(t=>SAVINGS_CATS.includes(t.cat)).reduce((s,t)=>s+t.amount,0);
+                  const sav=TXNS.filter(t=>SAVINGS_CATS_ALL.includes(t.cat)).reduce((s,t)=>s+t.amount,0);
                   const fix=TXNS.filter(t=>FIXED_CATS.includes(t.cat)).reduce((s,t)=>s+t.amount,0);
                   return(
                     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,textAlign:"center"}}>
@@ -3321,7 +3426,7 @@ export default function App(){
             {/* Category grid */}
             <div style={{fontSize:11,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em",marginBottom:9}}>Category</div>
             <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:18}}>
-              {CAT_GRID_ORDER.map(c=>{
+              {CAT_GRID_ALL.map(c=>{
                 const Icon = CAT_ICON[c]||MoreHorizontal;
                 const color = CAT_COLOR[c]||TH.accent;
                 const active = expenseForm.category===c;
@@ -3440,8 +3545,7 @@ export default function App(){
 
           // ── Savings rate ── (live gross income + PVD% per month, from Supabase)
           const savingsRateData = spendingMonths.map(sm=>{
-            const savCats = ["Emergency","Japan Fund","Retirement"];
-            const saved = (sm.transactions||[]).filter(t=>savCats.includes(t.cat)).reduce((s,t)=>s+t.amount,0);
+            const saved = (sm.transactions||[]).filter(t=>SAVINGS_CATS_ALL.includes(t.cat)).reduce((s,t)=>s+t.amount,0);
             const gross = sm.grossIncome || latestGrossIncome || DEFAULT_GROSS_INCOME;
             const pvdPctM = sm.pvdEmployeePct!=null ? sm.pvdEmployeePct : (latestEmployeePvdPct!=null ? latestEmployeePvdPct : 12);
             const pvd = gross*pvdPctM/100;
@@ -3524,20 +3628,76 @@ export default function App(){
           </div>
 
           <div style={cardStyle}>
-            <div style={{fontSize:12,fontWeight:700,marginBottom:12}}>Goals</div>
-            {[
-              {label:"Emergency", pct:EF_PCT,                                    color:TH.gold,   note:`${fmt(EF_BAL)} / ${fmt(EF_TARGET)}`},
-              {label:"Retirement",pct:Math.min(100,(PERSONAL+RETIRE)/5000000*100), color:TH.accent, note:`${fmt(PERSONAL)} + ${fmt(RETIRE)} = ${fmt(PERSONAL+RETIRE)} / ฿5M`},
-              {label:"Japan Fund",pct:Math.min(100,(cashFlow.travelFund||0)/120000*100),color:TH.accent2,note:`${fmt(cashFlow.travelFund||0)} / ฿120K`},
-            ].map((g,i)=>(
-              <div key={i} style={{marginBottom:i<2?14:0}}>
-                <div style={{display:"flex",justifyContent:"space-between",fontSize:11,marginBottom:2}}><span style={{fontWeight:600,color:TH.text2}}>{g.label}</span><span style={{fontWeight:700,color:g.color,fontFamily:TH.mono}}>{g.pct.toFixed(0)}%</span></div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+              <div style={{fontSize:12,fontWeight:700}}>Goals</div>
+              <button onClick={openAddGoal} style={{display:"flex",alignItems:"center",gap:4,background:"rgba(99,102,241,0.1)",border:"1px solid rgba(99,102,241,0.2)",borderRadius:9,padding:"5px 10px",fontSize:10,fontWeight:700,color:TH.accent,cursor:"pointer"}}><Plus size={11}/> Goal</button>
+            </div>
+            {goalCards.map((g,i)=>(
+              <div key={g.label} style={{marginBottom:i<goalCards.length-1?14:0}}>
+                <div style={{display:"flex",justifyContent:"space-between",fontSize:11,marginBottom:2}}>
+                  <span style={{display:"flex",alignItems:"center",gap:5,fontWeight:600,color:TH.text2}}>
+                    {g.label}
+                    {g.goalRow&&(
+                      <button onClick={()=>openEditGoal(g.goalRow)} style={{width:16,height:16,borderRadius:5,background:"transparent",border:"none",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",padding:0,flexShrink:0}}>
+                        <Pencil size={9} color={TH.muted}/>
+                      </button>
+                    )}
+                  </span>
+                  <span style={{fontWeight:700,color:g.color,fontFamily:TH.mono}}>{g.pct.toFixed(0)}%</span>
+                </div>
                 <div style={{fontSize:9,color:TH.muted,marginBottom:4}}>{g.note}</div>
                 <div style={{height:5,background:`${g.color}18`,borderRadius:999,overflow:"hidden"}}><div style={{height:"100%",width:`${g.pct}%`,background:g.color,borderRadius:999,transition:"width 1.2s ease"}}/></div>
               </div>
             ))}
           </div>
           </>)}
+
+          {planSubTab==="addgoal"&&(()=>{
+            const targetNum = parseFloat(goalForm.target)||0;
+            const canSave = goalFormIsEmergency ? true : (goalForm.name.trim() && targetNum>0);
+            return(
+            <div style={cardStyle}>
+              <div style={{marginBottom:16}}>
+                <div style={{fontSize:15,fontWeight:800,color:TH.text}}>{goalForm.id?"Edit Goal":"Add Goal"}</div>
+                <div style={{fontSize:11,color:TH.muted}}>{goalFormIsEmergency?"Override the auto-calculated target, or leave blank to keep using months-of-coverage":"Set a name and target — it shows up as a category in Add Expense right away"}</div>
+              </div>
+
+              <div style={{marginBottom:14}}>
+                <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Name</label>
+                <input type="text" value={goalForm.name} disabled={goalFormIsEmergency}
+                  onChange={e=>setGoalForm(f=>({...f,name:e.target.value}))} placeholder="e.g. Kitchen Renovation"
+                  style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 12px",fontSize:13,color:goalFormIsEmergency?TH.muted:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
+                {goalFormOriginalName&&goalFormOriginalName!==goalForm.name.trim()&&!goalFormIsEmergency&&(
+                  <div style={{marginTop:5,fontSize:10,color:TH.muted}}>Past transactions logged under "{goalFormOriginalName}" will be relabeled to the new name.</div>
+                )}
+              </div>
+
+              <div style={{marginBottom:14}}>
+                <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Target (฿){goalFormIsEmergency?" — optional":""}</label>
+                <input type="number" min="0" step="1000" inputMode="decimal" value={goalForm.target}
+                  onChange={e=>setGoalForm(f=>({...f,target:e.target.value}))}
+                  placeholder={goalFormIsEmergency?"auto (months of coverage)":"e.g. 200000"}
+                  style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 12px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
+              </div>
+
+              {goalFormStatus==="saving"&&<div style={{textAlign:"center",fontSize:12,color:TH.muted,marginBottom:10}}>Saving…</div>}
+              {goalFormStatus==="success"&&<div style={{textAlign:"center",fontSize:12,color:"#4ADE80",marginBottom:10}}>✓ Saved!</div>}
+              {goalFormStatus==="error"&&<div style={{textAlign:"center",fontSize:12,color:"#F87171",marginBottom:10}}>Failed to save — check connection</div>}
+
+              <button
+                onClick={submitGoal}
+                disabled={!canSave||goalFormStatus==="saving"}
+                style={{width:"100%",padding:14,borderRadius:12,fontWeight:700,fontSize:13,background:canSave?"linear-gradient(135deg,#6366F1,#38BDF8)":"rgba(255,255,255,0.06)",border:"none",color:canSave?"white":"#4B5563",cursor:canSave?"pointer":"default"}}>
+                {goalForm.id?"Save Changes":"Add Goal"}
+              </button>
+              {goalForm.id&&!goalFormIsEmergency&&(
+                <button onClick={deleteGoal} disabled={goalFormStatus==="saving"} style={{width:"100%",padding:12,borderRadius:12,fontWeight:700,fontSize:12,background:"transparent",border:`1px solid ${TH.border}`,color:TH.red,cursor:"pointer",marginTop:10}}>
+                  Delete Goal
+                </button>
+              )}
+            </div>
+            );
+          })()}
 
           {planSubTab==="debt"&&(<>
           <div style={cardStyle}>
@@ -3713,13 +3873,13 @@ export default function App(){
           <div style={cardStyle}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
               <div style={{fontSize:12,fontWeight:700}}>Monthly Automation</div>
-              <div style={{fontSize:9,color:TH.muted}}>1st of month · Gross ฿88,733</div>
+              <div style={{fontSize:9,color:TH.muted}}>1st of month · Gross {fmt(GROSS_INCOME)}</div>
             </div>
             {[
-              {dot:TH.gold,    label:"Emergency Fund",     amt:"฿8,000",  tag:"PHASE 1",   tc:TH.gold},
-              {dot:"#818CF8", label:`DCA → ${DCA_FUND}`, amt:"฿10,000", tag:"THIS MONTH",tc:"#818CF8"},
+              {dot:TH.gold,    label:"Emergency Fund",     amt:emergencyThisMonth?fmt(emergencyThisMonth):"฿8,000",  tag:"PHASE 1",   tc:TH.gold},
+              {dot:"#818CF8", label:`DCA → ${DCA_FUND}`, amt:DCA_AMOUNT!=null?fmt(DCA_AMOUNT):"—", tag:"THIS MONTH",tc:"#818CF8"},
               {dot:TH.accent2, label:"Japan Travel Fund",  amt:japanFundThisMonth?fmt(japanFundThisMonth):"฿15,000", tag:"KTB",       tc:TH.accent2},
-              {dot:"#94A3B8", label:"Fixed Bills (auto)", amt:"฿35,816", tag:"AUTO",      tc:"#94A3B8"},
+              {dot:"#94A3B8", label:"Fixed Bills (auto)", amt:fmt(FIXED_BILLS_THIS_MONTH), tag:"AUTO",      tc:"#94A3B8"},
               {dot:"#94A3B8", label:"Spending Buffer",    amt:"฿5,000",  tag:"DAILY",     tc:"#94A3B8"},
             ].map((r,i)=>(
               <div key={i} style={{display:"flex",alignItems:"center",gap:9,marginBottom:i<4?8:0}}>

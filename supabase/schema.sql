@@ -90,11 +90,40 @@ create table if not exists target_allocation (
   updated_at timestamptz not null default now()
 );
 
+-- One row per savings/short-term goal, e.g. name = 'Japan Fund', target = 120000. A goal's
+-- "current" progress is just the live sum of transactions logged under a category matching
+-- `name` (same mechanic Japan Fund always used — cumulativeCatAmount(name) — just made generic
+-- and addable from the app instead of hard-typed into the code). Renaming a goal here also
+-- relabels its past transactions (category text) to the new name in one step, so history never
+-- gets orphaned by a rename — no separate id-linking needed on the transactions table.
+-- `target` is nullable ONLY for the special 'Emergency' row: null there means "keep using the
+-- app's own months-of-coverage formula"; every other goal always has a real target you set.
+-- Retirement is deliberately NOT in this table — its ฿5M/฿20M milestones are baked into the
+-- separate Retirement Projection chart in several places, so it stays a fixed, non-editable
+-- figure for now rather than half-wiring just one of the ~10 spots that reference it.
+create table if not exists goals (
+  id uuid primary key default gen_random_uuid(),
+  name text not null unique,
+  target numeric,
+  sort_order int not null default 0,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+-- Seed today's two real goals so existing history keeps working immediately: Japan Fund keeps
+-- its current ฿120,000 target (now editable), and Emergency is seeded with no override (null),
+-- so it keeps using the existing months-of-coverage formula until you set one.
+insert into goals (name, target, sort_order) values ('Japan Fund', 120000, 1)
+  on conflict (name) do nothing;
+insert into goals (name, target, sort_order) values ('Emergency', null, 0)
+  on conflict (name) do nothing;
+
 alter table holdings enable row level security;
 alter table debts enable row level security;
 alter table spending enable row level security;
 alter table transactions enable row level security;
 alter table target_allocation enable row level security;
+alter table goals enable row level security;
 
 -- Single-user app using the public anon key with no auth configured, so these
 -- policies grant the anon role full read/write access to every row. Anyone
@@ -105,3 +134,4 @@ create policy "anon full access" on debts for all using (true) with check (true)
 create policy "anon full access" on spending for all using (true) with check (true);
 create policy "anon full access" on transactions for all using (true) with check (true);
 create policy "anon full access" on target_allocation for all using (true) with check (true);
+create policy "anon full access" on goals for all using (true) with check (true);
