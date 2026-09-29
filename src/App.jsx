@@ -235,6 +235,62 @@ function monthRank(m){
   const idx=MO.indexOf(String(parts[0]).slice(0,3));
   return (isFinite(yr)?yr:0)*12 + (idx>=0?idx:0);
 }
+// A "Mon YYYY" label as an actual Date, for cash-flow math (XIRR) where a real date is needed
+// rather than just a sort order. Uses the 15th of the month since we only log a month, not a day
+// — close enough for an annualized-rate estimate.
+function monthToDate(m){
+  if(!m) return null;
+  const parts=String(m).trim().split(" ");
+  const yr=parseInt(parts[1],10);
+  const idx=MO.indexOf(String(parts[0]).slice(0,3));
+  if(!isFinite(yr)||idx<0) return null;
+  return new Date(yr, idx, 15);
+}
+// Money-weighted annual return (XIRR, via Newton's method): given dated cash flows — negative for
+// money you put in, positive for money you'd get out (current value counts as one positive flow
+// "today") — finds the constant annual rate that makes their combined present value zero. This is
+// what "did my investing actually pay off" should mean, since it accounts for WHEN money went in,
+// unlike a plain (value-cost)/cost % that gets diluted the moment you add fresh money. Returns a
+// percentage, or null when there isn't enough history (or a real mix of in/out flows) to solve.
+function xirr(cashflows){
+  const flows = (cashflows||[]).filter(c=>c.date && c.amount);
+  if(flows.length<2) return null;
+  if(!flows.some(c=>c.amount>0) || !flows.some(c=>c.amount<0)) return null;
+  const t0 = Math.min(...flows.map(c=>c.date.getTime()));
+  const yrs = c => (c.date.getTime()-t0)/(365.25*86400000);
+  const npv = rate => flows.reduce((s,c)=>s+c.amount/Math.pow(1+rate,yrs(c)),0);
+  const dnpv = rate => flows.reduce((s,c)=>{const t=yrs(c); return t===0?s:s-t*c.amount/Math.pow(1+rate,t+1);},0);
+  let rate=0.1;
+  for(let i=0;i<60;i++){
+    const f=npv(rate), d=dnpv(rate);
+    if(!isFinite(f)||!isFinite(d)||Math.abs(d)<1e-10) return null;
+    const next = Math.max(-0.99, rate - f/d);
+    if(Math.abs(next-rate)<1e-7){ rate=next; break; }
+    rate = next;
+  }
+  return isFinite(rate) ? +(rate*100).toFixed(1) : null;
+}
+// Allocation-by-class version of totalsAtMonths above — same forward-fill logic (grouped by fund
+// code, each fund's latest value at-or-before the month counts), but bucketed by asset class
+// instead of summed into one number, so Rebalancing can show how the SPLIT drifted over time, not
+// just where it stands today.
+function allocationAtMonths(rows, evalMonths){
+  const byCode = {};
+  rows.forEach(r=>{ if(!r.month) return; (byCode[r.code]=byCode[r.code]||[]).push(r); });
+  Object.values(byCode).forEach(arr=>arr.sort((a,b)=>monthRank(a.month)-monthRank(b.month)));
+  return evalMonths.map(m=>{
+    const byCls = {};
+    Object.values(byCode).forEach(arr=>{
+      let row=null;
+      for(const r of arr){ if(monthRank(r.month)<=monthRank(m)) row=r; else break; }
+      if(row) byCls[row.cls] = (byCls[row.cls]||0) + (row.value||0);
+    });
+    const total = Object.values(byCls).reduce((s,v)=>s+v,0);
+    const pctByCls = {};
+    Object.entries(byCls).forEach(([cls,val])=>{ pctByCls[cls] = total ? +(val/total*100).toFixed(1) : 0; });
+    return { m, pctByCls, total };
+  });
+}
 
 // ─── SUPABASE MAPPERS ────────────────────────────────────────────────────────
 function mapHoldingRow(r){
@@ -1356,7 +1412,46 @@ export default function App(){
   const retireTargetYear = new Date().getFullYear() + retireYears;
   const CLASSES  = ["All",...Array.from(new Set(holdings.map(h=>h.cls)))];
   const FILTERED = holdings.filter(h=>(!search||(h.code+h.cls+h.name).toLowerCase().includes(search.toLowerCase()))&&(fCls==="All"||h.cls===fCls));
-  const REBAL    = targetAlloc.map(t=>{const a=ALLOC.find(x=>x.cls===t.cls);return{...t,actualPct:a?.pct||0,diff:+((a?.pct||0)-t.target).toFixed(1)};});
+  // How many points off target before we actually call a class out as worth rebalancing — same
+  // cutoff the ⚠️-vs-💡 icons already used, just named so it's computed once instead of repeated
+  // as a bare "3" in every place that reads REBAL.
+  const REBAL_THRESHOLD = 3;
+  // Drift trend per class — how the actual % has moved since a few months back, so Rebalancing
+  // can show "heading further off" vs "correcting on its own" instead of just today's snapshot.
+  // Reference point is ~3 logged months back (or the earliest one, if there's less history than
+  // that yet); null when there's under 2 months of holdings history to compare against.
+  const fundHistMonths = Array.from(new Set(holdingsHistory.map(h=>h.month).filter(Boolean))).sort((a,b)=>monthRank(a)-monthRank(b));
+  const allocHistory = fundHistMonths.length>=2 ? allocationAtMonths(holdingsHistory, fundHistMonths) : [];
+  const allocRef = allocHistory.length>=2 ? allocHistory[Math.max(0,allocHistory.length-4)] : null;
+  const REBAL    = targetAlloc.map(t=>{
+    const a=ALLOC.find(x=>x.cls===t.cls);
+    const actualPct = a?.pct||0;
+    const diff = +(actualPct-t.target).toFixed(1);
+    const refPct = allocRef ? (allocRef.pctByCls[t.cls]||0) : null;
+    return {...t, actualPct, diff, overThreshold: Math.abs(diff)>=REBAL_THRESHOLD, trend: refPct!=null ? +(actualPct-refPct).toFixed(1) : null};
+  });
+  const needsRebalance = REBAL.some(r=>r.overThreshold);
+  // Real, money-weighted portfolio return (XIRR) — every month's net new contribution across all
+  // funds (this month's total cost minus last month's, per fund, summed) as a negative flow dated
+  // that month, plus today's total value as one final positive flow. Unlike (value-cost)/cost,
+  // this accounts for WHEN money went in, so adding a lump sum last week doesn't make this month
+  // look like a loss. Null until there's at least one real contribution logged to compare against
+  // today's value.
+  const portfolioXIRR = (()=>{
+    const byCode = {};
+    holdingsHistory.forEach(h=>{ if(!h.month) return; (byCode[h.code]=byCode[h.code]||[]).push(h); });
+    const flows = [];
+    Object.values(byCode).forEach(arr=>{
+      const sorted = arr.slice().sort((a,b)=>monthRank(a.month)-monthRank(b.month));
+      sorted.forEach((row,i)=>{
+        const contribution = i===0 ? row.cost : row.cost-sorted[i-1].cost;
+        const d = monthToDate(row.month);
+        if(contribution>0 && d) flows.push({ date:d, amount:-contribution });
+      });
+    });
+    if(TOTAL>0) flows.push({ date:new Date(), amount:TOTAL });
+    return xirr(flows);
+  })();
   const CM       = spendingMonths[selMonth]||spendingMonths[spendingMonths.length-1]||FB_SP[1];
   const INCOME   = CM.income||cashFlow.income||75400;
   const TXNS     = [...(CM.transactions||[])].reverse();
@@ -1871,6 +1966,25 @@ export default function App(){
                     </div>
                   ))}
                 </div>
+                {(()=>{
+                  const totalCost = holdings.reduce((s,h)=>s+h.cost,0);
+                  const totalGain = TOTAL-totalCost;
+                  const gainPct = totalCost ? (totalGain/totalCost*100) : 0;
+                  return(
+                  <div style={{...dcStyle,display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+                    <div>
+                      <div style={{fontSize:9,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".07em",marginBottom:6}}>Unrealized Gain</div>
+                      <div style={{fontSize:18,fontWeight:800,fontFamily:TH.mono,color:totalGain>=0?TH.green:TH.red}}>{sgn(totalGain)}{fmt(totalGain)}</div>
+                      <div style={{fontSize:9,color:TH.muted,marginTop:2}}>{sgn(gainPct)}{fd(gainPct,1)}% vs cost</div>
+                    </div>
+                    <div>
+                      <div style={{fontSize:9,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".07em",marginBottom:6}}>Real Return (XIRR)</div>
+                      <div style={{fontSize:18,fontWeight:800,fontFamily:TH.mono,color:portfolioXIRR==null?TH.muted:portfolioXIRR>=0?TH.green:TH.red}}>{portfolioXIRR==null?"—":`${sgn(portfolioXIRR)}${fd(portfolioXIRR,1)}%`}</div>
+                      <div style={{fontSize:9,color:TH.muted,marginTop:2}}>{portfolioXIRR==null?"Needs 2+ logged months":"Annualized, money-weighted"}</div>
+                    </div>
+                  </div>
+                  );
+                })()}
                 <div style={dcStyle}>
                   <div style={{fontSize:12,fontWeight:700,color:TH.text,marginBottom:12}}>Holdings</div>
                   {holdings.map((h,i)=>(
@@ -1917,13 +2031,14 @@ export default function App(){
                 </div>
                 <div style={dcStyle}>
                   <div style={{fontSize:12,fontWeight:700,color:TH.text,marginBottom:10}}>Rebalancing</div>
+                  {needsRebalance&&<div style={{fontSize:10,fontWeight:700,color:"#FBBF24",background:"rgba(251,191,36,0.1)",border:"1px solid rgba(251,191,36,0.25)",borderRadius:9,padding:"6px 9px",marginBottom:10}}>⚠️ Rebalance recommended — {REBAL_THRESHOLD}pt+ drift on at least one class</div>}
                   {REBAL.filter(r=>r.diff!==0).map((r,i,a)=>(
                     <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:i<a.length-1?`1px solid ${TH.border}`:"none"}}>
                       <div style={{display:"flex",alignItems:"center",gap:8}}>
-                        <span style={{fontSize:13}}>{Math.abs(r.diff)>=3?"⚠️":"💡"}</span>
-                        <div><div style={{fontSize:11,fontWeight:600,color:TH.text2}}>{r.cls}</div><div style={{fontSize:9,color:TH.muted}}>{r.diff>0?"Overweight":"Underweight"}</div></div>
+                        <span style={{fontSize:13}}>{r.overThreshold?"⚠️":"💡"}</span>
+                        <div><div style={{fontSize:11,fontWeight:600,color:TH.text2}}>{r.cls}</div><div style={{fontSize:9,color:TH.muted}}>{r.diff>0?"Overweight":"Underweight"}{r.trend!=null&&Math.abs(r.trend)>=0.5?` · ${r.trend>0?"↑":"↓"}${Math.abs(r.trend)}pt vs a few months ago`:""}</div></div>
                       </div>
-                      <span style={{fontSize:11,fontWeight:800,color:Math.abs(r.diff)>=3?"#FBBF24":TH.muted,fontFamily:TH.mono}}>{sgn(r.diff)}{r.diff}%</span>
+                      <span style={{fontSize:11,fontWeight:800,color:r.overThreshold?"#FBBF24":TH.muted,fontFamily:TH.mono}}>{sgn(r.diff)}{r.diff}%</span>
                     </div>
                   ))}
                   {REBAL.every(r=>r.diff===0)&&<div style={{textAlign:"center",padding:12,color:TH.green,fontSize:11,fontWeight:600}}>✅ Balanced!</div>}
@@ -2441,10 +2556,11 @@ export default function App(){
                     <div style={{fontSize:12,fontWeight:700,color:TH.text}}>Rebalancing</div>
                     <button onClick={()=>setAiOpen(true)} style={{fontSize:9,fontWeight:700,color:TH.accent,background:`${TH.accent}12`,border:`1px solid rgba(99,102,241,0.2)`,borderRadius:7,padding:"3px 9px",cursor:"pointer"}}>Ask AI ✦</button>
                   </div>
+                  {needsRebalance&&<div style={{fontSize:10,fontWeight:700,color:"#FBBF24",background:"rgba(251,191,36,0.1)",border:"1px solid rgba(251,191,36,0.25)",borderRadius:9,padding:"6px 9px",marginBottom:10}}>⚠️ Rebalance recommended</div>}
                   {REBAL.filter(r=>r.diff!==0).map((r,i,a)=>(
                     <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 0",borderBottom:i<a.length-1?`1px solid ${TH.border}`:"none"}}>
-                      <div style={{display:"flex",alignItems:"center",gap:7}}><span style={{fontSize:12}}>{Math.abs(r.diff)>=3?"⚠️":"💡"}</span><div><div style={{fontSize:11,fontWeight:600,color:TH.text2}}>{r.cls}</div><div style={{fontSize:9,color:TH.muted}}>{r.diff>0?"Over":"Under"}</div></div></div>
-                      <span style={{fontSize:11,fontWeight:800,color:Math.abs(r.diff)>=3?"#FBBF24":TH.muted,fontFamily:TH.mono}}>{sgn(r.diff)}{r.diff}%</span>
+                      <div style={{display:"flex",alignItems:"center",gap:7}}><span style={{fontSize:12}}>{r.overThreshold?"⚠️":"💡"}</span><div><div style={{fontSize:11,fontWeight:600,color:TH.text2}}>{r.cls}</div><div style={{fontSize:9,color:TH.muted}}>{r.diff>0?"Over":"Under"}</div></div></div>
+                      <span style={{fontSize:11,fontWeight:800,color:r.overThreshold?"#FBBF24":TH.muted,fontFamily:TH.mono}}>{sgn(r.diff)}{r.diff}%</span>
                     </div>
                   ))}
                   {REBAL.every(r=>r.diff===0)&&<div style={{textAlign:"center",padding:12,color:TH.green,fontSize:11,fontWeight:600}}>✅ Balanced!</div>}
@@ -3102,7 +3218,7 @@ export default function App(){
                 <div style={{width:44,height:44,borderRadius:12,background:"rgba(251,191,36,0.12)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>⚖️</div>
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{fontSize:13,fontWeight:700,color:TH.text}}>Rebalance</div>
-                  <div style={{fontSize:11,color:TH.muted,marginTop:2}}>{REBAL.every(r=>r.diff===0)?"Portfolio balanced":`${REBAL.filter(r=>r.diff!==0).length} class(es) off target`}</div>
+                  <div style={{fontSize:11,color:needsRebalance?"#FBBF24":TH.muted,marginTop:2,fontWeight:needsRebalance?700:400}}>{REBAL.every(r=>r.diff===0)?"Portfolio balanced":needsRebalance?"⚠️ Rebalance recommended":`${REBAL.filter(r=>r.diff!==0).length} class(es) off target`}</div>
                 </div>
                 <ChevronRight size={16} color={TH.dim}/>
               </div>
@@ -3234,8 +3350,9 @@ export default function App(){
               <button onClick={openEditTargets} style={{width:22,height:22,borderRadius:7,background:"transparent",border:`1px solid ${TH.border}`,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",padding:0,flexShrink:0}}><Pencil size={11} color={TH.muted}/></button>
             </div>
             <div style={{fontSize:10,color:TH.muted,marginBottom:12}}>{targetAllocDB.length?"Your saved targets":"Default targets — tap ✎ to set your own"}</div>
+            {needsRebalance&&<div style={{fontSize:11,fontWeight:700,color:"#FBBF24",background:"rgba(251,191,36,0.1)",border:"1px solid rgba(251,191,36,0.25)",borderRadius:10,padding:"8px 10px",marginBottom:12}}>⚠️ Rebalance recommended — at least one class is {REBAL_THRESHOLD}pt+ off target</div>}
             {REBAL.map((r,i)=>{
-              const sc=Math.abs(r.diff)>=3?"#FBBF24":r.diff===0?TH.green:TH.inactive;
+              const sc=r.overThreshold?"#FBBF24":r.diff===0?TH.green:TH.inactive;
               return(
                 <div key={i} style={{marginBottom:11}}>
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
@@ -3250,6 +3367,7 @@ export default function App(){
                     <div style={{position:"absolute",top:0,left:0,width:`${Math.min(r.target*2,100)}%`,height:"100%",background:`${CLS_COLOR[r.cls]||TH.accent}25`,borderRadius:999}}/>
                     <div style={{position:"absolute",top:0,left:0,width:`${Math.min(r.actualPct*2,100)}%`,height:"100%",background:CLS_COLOR[r.cls]||TH.accent,borderRadius:999,transition:"width 1.2s ease"}}/>
                   </div>
+                  {r.trend!=null&&Math.abs(r.trend)>=0.5&&<div style={{fontSize:9,color:TH.muted,marginTop:3}}>{r.trend>0?"↑":"↓"} {Math.abs(r.trend)}pt vs a few months ago</div>}
                 </div>
               );
             })}
@@ -3291,6 +3409,17 @@ export default function App(){
                   <span>Value now <b style={{color:"#FFFFFF",fontFamily:TH.mono,fontWeight:700}}>{fmt(TOTAL)}</b></span>
                 </div>
               </div>
+            </div>
+
+            <div style={cardStyle}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <div>
+                  <div style={{fontSize:9,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em",marginBottom:4}}>Real Return (XIRR)</div>
+                  <div style={{fontSize:9,color:TH.muted}}>Annualized, accounts for when you added money — not just start vs. end</div>
+                </div>
+                <div style={{fontSize:20,fontWeight:800,fontFamily:TH.mono,color:portfolioXIRR==null?TH.muted:portfolioXIRR>=0?TH.green:TH.red,flexShrink:0,marginLeft:10}}>{portfolioXIRR==null?"—":`${sgn(portfolioXIRR)}${fd(portfolioXIRR,1)}%`}</div>
+              </div>
+              {portfolioXIRR==null&&<div style={{fontSize:9,color:TH.muted,marginTop:6}}>Needs at least 2 logged months to compute.</div>}
             </div>
 
             <div style={cardStyle}>
@@ -4686,13 +4815,14 @@ export default function App(){
               <div style={{fontSize:12,fontWeight:700}}>Rebalancing</div>
               <button onClick={()=>setAiOpen(true)} style={{fontSize:9,fontWeight:700,color:TH.accent,background:`${TH.accent}12`,border:"1px solid rgba(99,102,241,0.2)",borderRadius:7,padding:"3px 9px",cursor:"pointer"}}>Ask AI ✦</button>
             </div>
+            {needsRebalance&&<div style={{fontSize:11,fontWeight:700,color:"#FBBF24",background:"rgba(251,191,36,0.1)",border:"1px solid rgba(251,191,36,0.25)",borderRadius:10,padding:"8px 10px",marginBottom:10}}>⚠️ Rebalance recommended</div>}
             {REBAL.filter(r=>r.diff!==0).map((r,i,a)=>(
               <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"9px 0",borderBottom:i<a.length-1?`1px solid ${TH.border}`:"none"}}>
                 <div style={{display:"flex",alignItems:"center",gap:9}}>
-                  <span style={{fontSize:14}}>{Math.abs(r.diff)>=3?"⚠️":"💡"}</span>
+                  <span style={{fontSize:14}}>{r.overThreshold?"⚠️":"💡"}</span>
                   <div><div style={{fontSize:12,fontWeight:600,color:TH.text2}}>{r.cls}</div><div style={{fontSize:9,color:TH.muted}}>{r.diff>0?"Overweight":"Underweight"}</div></div>
                 </div>
-                <span style={{fontSize:11,fontWeight:800,color:Math.abs(r.diff)>=3?"#FBBF24":TH.muted,fontFamily:TH.mono}}>{sgn(r.diff)}{r.diff}%</span>
+                <span style={{fontSize:11,fontWeight:800,color:r.overThreshold?"#FBBF24":TH.muted,fontFamily:TH.mono}}>{sgn(r.diff)}{r.diff}%</span>
               </div>
             ))}
             {REBAL.every(r=>r.diff===0)&&<div style={{textAlign:"center",padding:16,color:TH.green,fontSize:12,fontWeight:600}}>✅ Portfolio balanced!</div>}
