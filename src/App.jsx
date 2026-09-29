@@ -615,7 +615,6 @@ export default function App(){
   };
   // Sum of every transaction in `cat` across all loaded months (running total)
   const cumulativeCatAmount = cat => spendingMonths.reduce((s,m)=>s+(m.transactions||[]).filter(t=>t.cat===cat).reduce((a,t)=>a+t.amount,0),0);
-  const japanFundThisMonth = latestMonthCatAmount("Japan Fund");
   const emergencyThisMonth = latestMonthCatAmount("Emergency");
   // ─── GOALS (Supabase `goals` table) ─────────────────────────────────────────
   // Every category-linked goal you've saved (Japan Fund, any new one like Kitchen Renovation) —
@@ -838,7 +837,11 @@ export default function App(){
         const { error } = await supabase.from("goals").update({ name, target: targetNum }).eq("id", goalForm.id);
         if(error) throw error;
       }else{
-        const { error } = await supabase.from("goals").insert({ name, target: targetNum });
+        // New goals go to the end of the list (highest sort_order + 1) rather than defaulting to
+        // 0 — otherwise a brand-new goal would jump ahead of Travel Fund/etc. in the Goals list
+        // and in the "This Month" pulse widgets, which follow whichever goal sorts first.
+        const nextSortOrder = goalsDB.length ? Math.max(...goalsDB.map(g=>g.sort_order||0))+1 : 0;
+        const { error } = await supabase.from("goals").insert({ name, target: targetNum, sort_order: nextSortOrder });
         if(error) throw error;
       }
       if(goalFormOriginalName && goalFormOriginalName!==name){
@@ -2154,7 +2157,123 @@ export default function App(){
           ))}
 
           {/* ── PLANNING TAB (desktop) ── */}
-          {tab==="planning"&&(planSubTab==="addgoal"?(()=>{
+          {tab==="planning"&&(planSubTab==="logincome"?(()=>{
+            const existingMonths = spendingMonths.map(m=>m.m);
+            const canSave = incomeForm.month.trim() && parseFloat(incomeForm.income)>0;
+            return(
+            <div style={{maxWidth:480}}>
+              <button onClick={()=>setPlanSubTab(null)} style={{display:"flex",alignItems:"center",gap:4,background:"transparent",border:"none",color:TH.muted,fontSize:11,fontWeight:600,cursor:"pointer",padding:"2px 0",marginBottom:10}}>
+                <ChevronRight size={13} style={{transform:"rotate(180deg)"}}/> Plan
+              </button>
+              <div style={dcStyle}>
+                <div style={{marginBottom:16}}>
+                  <div style={{fontSize:15,fontWeight:800,color:TH.text}}>Edit Income</div>
+                  <div style={{fontSize:11,color:TH.muted}}>Net income, budget, gross salary & PVD% — feeds Cash Flow, Savings Rate and Retirement projections</div>
+                </div>
+
+                <div style={{marginBottom:10}}>
+                  <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Month</label>
+                  {incomeMonthMode==="existing"?(
+                    <select value={incomeForm.month} onChange={e=>{
+                        const m=e.target.value;
+                        if(m==="__new__"){ setIncomeMonthMode("new"); setIncomeForm(f=>({...f,month:""})); return; }
+                        const src = spendingMonths.find(sm=>sm.m===m);
+                        setIncomeForm({
+                          month:m, income:String(src?.income??""), budget:String(src?.budget??""),
+                          grossIncome:String(src?.grossIncome||latestGrossIncome||""),
+                          pvdEmployeePct:String(src?.pvdEmployeePct!=null?src.pvdEmployeePct:(latestEmployeePvdPct!=null?latestEmployeePvdPct:12)),
+                          pvdEmployerPct:String(src?.pvdEmployerPct!=null?src.pvdEmployerPct:(latestEmployerPvdPct!=null?latestEmployerPvdPct:12)),
+                          taxBracketPct:String(src?.taxBracketPct!=null?src.taxBracketPct:(latestTaxBracketPct!=null?latestTaxBracketPct:15)),
+                        });
+                      }}
+                      style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 12px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit"}}>
+                      {existingMonths.map(m=><option key={m} value={m}>{m}</option>)}
+                      <option value="__new__">+ New month…</option>
+                    </select>
+                  ):(
+                    <div style={{display:"flex",gap:8,marginTop:5}}>
+                      <input type="text" value={incomeForm.month} autoFocus
+                        onChange={e=>setIncomeForm(f=>({...f,month:e.target.value}))} placeholder="e.g. Oct 2026"
+                        style={{flex:1,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 12px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
+                      <button onClick={()=>{setIncomeMonthMode("existing"); setIncomeForm(f=>({...f,month:CM?.m||existingMonths[existingMonths.length-1]||""}));}}
+                        style={{fontSize:11,fontWeight:600,color:TH.muted,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:10,padding:"0 12px",cursor:"pointer"}}>Cancel</button>
+                    </div>
+                  )}
+                </div>
+
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+                  <div>
+                    <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Net Income (฿)</label>
+                    <input type="number" min="0" step="1" inputMode="decimal" value={incomeForm.income}
+                      onChange={e=>setIncomeForm(f=>({...f,income:e.target.value}))} placeholder="e.g. 73897"
+                      style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 12px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
+                  </div>
+                  <div>
+                    <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Budget (฿)</label>
+                    <input type="number" min="0" step="1" inputMode="decimal" value={incomeForm.budget}
+                      onChange={e=>setIncomeForm(f=>({...f,budget:e.target.value}))} placeholder="e.g. 68868"
+                      style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 12px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
+                  </div>
+                </div>
+
+                <div style={{marginBottom:10}}>
+                  <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Gross Salary (฿)</label>
+                  <input type="number" min="0" step="1" inputMode="decimal" value={incomeForm.grossIncome}
+                    onChange={e=>setIncomeForm(f=>({...f,grossIncome:e.target.value}))} placeholder="e.g. 88733"
+                    style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 12px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
+                </div>
+
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
+                  <div>
+                    <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Your PVD %</label>
+                    <input type="number" min="0" max="100" step="0.5" inputMode="decimal" value={incomeForm.pvdEmployeePct}
+                      onChange={e=>setIncomeForm(f=>({...f,pvdEmployeePct:e.target.value}))} placeholder="e.g. 12"
+                      style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 12px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
+                  </div>
+                  <div>
+                    <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Employer PVD %</label>
+                    <input type="number" min="0" max="100" step="0.5" inputMode="decimal" value={incomeForm.pvdEmployerPct}
+                      onChange={e=>setIncomeForm(f=>({...f,pvdEmployerPct:e.target.value}))} placeholder="e.g. 12"
+                      style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 12px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
+                  </div>
+                </div>
+
+                <div style={{marginBottom:14}}>
+                  <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Marginal Tax Bracket</label>
+                  <select value={incomeForm.taxBracketPct} onChange={e=>setIncomeForm(f=>({...f,taxBracketPct:e.target.value}))}
+                    style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 12px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit"}}>
+                    {[0,5,10,15,20,25,30,35].map(p=><option key={p} value={p}>{p}%</option>)}
+                  </select>
+                  <div style={{fontSize:9,color:TH.muted,marginTop:5}}>Thai PIT bracket your last taxable baht falls in — used to estimate RMF/SSF/PVD tax savings in Wealth Analysis. Not tax advice.</div>
+                </div>
+
+                {parseFloat(incomeForm.grossIncome)>0&&(parseFloat(incomeForm.pvdEmployeePct)>=0||parseFloat(incomeForm.pvdEmployerPct)>=0)&&(()=>{
+                  const g=parseFloat(incomeForm.grossIncome)||0;
+                  const yourPvd=Math.round(g*(parseFloat(incomeForm.pvdEmployeePct)||0)/100);
+                  const employerPvd=Math.round(g*(parseFloat(incomeForm.pvdEmployerPct)||0)/100);
+                  return(
+                  <div style={{background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"10px 14px",marginBottom:14}}>
+                    <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}><span style={{fontSize:10,color:TH.muted}}>Your PVD/mo</span><span style={{fontSize:13,fontWeight:700,color:TH.text,fontFamily:TH.mono}}>{fmt(yourPvd)}</span></div>
+                    <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}><span style={{fontSize:10,color:TH.muted}}>Employer PVD/mo</span><span style={{fontSize:13,fontWeight:700,color:TH.green,fontFamily:TH.mono}}>{fmt(employerPvd)}</span></div>
+                    <div style={{display:"flex",justifyContent:"space-between",paddingTop:6,borderTop:`1px solid ${TH.border}`}}><span style={{fontSize:10,fontWeight:700,color:TH.muted}}>Total PVD/mo</span><span style={{fontSize:14,fontWeight:800,color:TH.text,fontFamily:TH.mono}}>{fmt(yourPvd+employerPvd)}</span></div>
+                  </div>
+                  );
+                })()}
+
+                {incomeFormStatus==="saving"&&<div style={{textAlign:"center",fontSize:12,color:TH.muted,marginBottom:10}}>Saving…</div>}
+                {incomeFormStatus==="success"&&<div style={{textAlign:"center",fontSize:12,color:"#4ADE80",marginBottom:10}}>✓ Saved!</div>}
+                {incomeFormStatus==="error"&&<div style={{textAlign:"center",fontSize:12,color:"#F87171",marginBottom:10}}>Failed to save — check connection</div>}
+
+                <button
+                  onClick={submitIncomeForm}
+                  disabled={!canSave||incomeFormStatus==="saving"}
+                  style={{width:"100%",padding:14,borderRadius:12,fontWeight:700,fontSize:13,background:canSave?"linear-gradient(135deg,#6366F1,#38BDF8)":"rgba(255,255,255,0.06)",border:"none",color:canSave?"white":"#4B5563",cursor:canSave?"pointer":"default"}}>
+                  Save
+                </button>
+              </div>
+            </div>
+            );
+          })():planSubTab==="addgoal"?(()=>{
             const targetNum = parseFloat(goalForm.target)||0;
             const canSave = goalFormIsEmergency ? true : (goalForm.name.trim() && targetNum>0);
             return(
@@ -2209,7 +2328,10 @@ export default function App(){
               {/* Col 1 — Automation + Goals */}
               <div style={{display:"flex",flexDirection:"column",gap:14}}>
                 <div style={dcStyle}>
-                  <div style={{fontSize:12,fontWeight:700,color:TH.text,marginBottom:12}}>Monthly Automation</div>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+                    <div style={{fontSize:12,fontWeight:700,color:TH.text}}>Monthly Automation <span style={{fontSize:10,color:TH.muted,fontWeight:400}}>· Budget {fmt(CM.budget||latestBudget||DEFAULT_BUDGET)}</span></div>
+                    <button onClick={openEditIncome} style={{width:22,height:22,borderRadius:7,background:"transparent",border:`1px solid ${TH.border}`,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",padding:0,flexShrink:0}} title="Edit income & budget"><Pencil size={11} color={TH.muted}/></button>
+                  </div>
                   {[
                     {dot:TH.gold,    label:"Emergency Fund",     amt:emergencyThisMonth?fmt(emergencyThisMonth):"฿8,000",  tag:"PHASE 1"},
                     {dot:"#818CF8",  label:`DCA → ${DCA_FUND}`, amt:DCA_AMOUNT!=null?fmt(DCA_AMOUNT):"—", tag:"THIS MONTH"},
