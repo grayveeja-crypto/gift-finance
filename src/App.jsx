@@ -37,17 +37,20 @@ const RETIRE_CURRENT_AGE = (()=>{
 })();
 const RETIRE_TARGET_AGE = 60;
 
-// Cost basis already built up in each Personal (RMF/SSF) fund BEFORE she started logging monthly
-// updates in this app (April 2026) — i.e. what she'd already invested in prior years. Without this,
-// "Personal Contributions this year" has no prior-year row to diff against for a fund's very first
-// logged entry, so it falls back to counting the ENTIRE cost (including pre-app history) as "this
-// year," wildly overstating new contributions. These four figures come from her own tracking sheet
-// (Starting Cost Basis column) and match the Cost she originally seeded each fund with in-app.
+// Cost basis already built up in each Personal (RMF/SSF + foreign-currency) holding BEFORE she
+// started logging monthly updates in this app (April 2026) — i.e. what she'd already invested in
+// prior years. Without this, "Personal Contributions this year" has no prior-year row to diff
+// against for a holding's very first logged entry, so it falls back to counting the ENTIRE cost
+// (including pre-app history) as "this year," wildly overstating new contributions. These figures
+// come from her own tracking sheet (Starting Cost Basis column) and match the Cost each holding
+// was originally seeded with in-app. USD is her foreign-currency cash holding, not an RMF/SSF
+// fund, but it's logged as type "Personal" too, so it needs the same opening-cost baseline.
 const PERSONAL_OPENING_COST = {
   "SCBRM2":        15000,
   "SCBRMS&P500":   100000,
   "SCBRMWORLD(A)": 50000,
   "SCBSFF":        110000,
+  "USD":           32570,
 };
 
 // ─── FALLBACK DATA ────────────────────────────────────────────────────────────
@@ -833,7 +836,7 @@ export default function App(){
   // ─── FUND MANAGER (add / update holdings) ───────────────────────────────────
   // Like Debt, fund updates are now logged per month instead of overwritten, so value/cost/
   // unrealized-gain can be charted over time. Saving upserts on (code, month).
-  const BLANK_FUND = {id:null,code:"",name:"",type:"Personal",cls:"Global Equity",nav:"",units:"",cost:"",prevNav:0,month:""};
+  const BLANK_FUND = {id:null,code:"",name:"",type:"Personal",cls:"Global Equity",nav:"",units:"",cost:"",prevNav:0,prevCost:0,contribAmt:"",month:""};
   const [fundFormMode,setFundFormMode]=useState("add"); // "add" | "edit"
   const [fundForm,setFundForm]=useState(BLANK_FUND);
   const [fundFormStatus,setFundFormStatus]=useState(null); // null | "saving" | "success" | "error"
@@ -847,7 +850,7 @@ export default function App(){
   }
   function openEditFund(fund){
     setFundFormMode("edit");
-    setFundForm({id:fund.id,code:fund.code,name:fund.name,type:fund.type,cls:fund.cls,nav:String(fund.nav||""),units:String(fund.units||""),cost:String(fund.cost||""),prevNav:fund.nav||0,month:curMonthLabel()});
+    setFundForm({id:fund.id,code:fund.code,name:fund.name,type:fund.type,cls:fund.cls,nav:String(fund.nav||""),units:String(fund.units||""),cost:String(fund.cost||""),prevNav:fund.nav||0,prevCost:fund.cost||0,contribAmt:"",month:curMonthLabel()});
     setFundFormStatus(null); setSelFund(null);
     setTab("investments"); setInvestSubTab("logfund");
   }
@@ -3545,7 +3548,7 @@ export default function App(){
             <div style={cardStyle}>
               <div style={{marginBottom:16}}>
                 <div style={{fontSize:15,fontWeight:800,color:TH.text}}>{fundFormMode==="edit"?"Update Fund":"Add Fund"}</div>
-                <div style={{fontSize:11,color:TH.muted}}>{fundFormMode==="edit"?"Log this month's NAV, units or cost — tracks value & unrealized gain over time":"New holding for your portfolio"}</div>
+                <div style={{fontSize:11,color:TH.muted}}>{fundFormMode==="edit"?"Log this month's NAV, units, and how much you added — tracks value & unrealized gain over time":"New holding for your portfolio"}</div>
               </div>
 
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
@@ -3611,6 +3614,19 @@ export default function App(){
                 </select>
               </div>
 
+              <div style={{marginBottom:10}}>
+                <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Add This Month (฿) — optional</label>
+                <input type="number" min="0" step="0.01" inputMode="decimal" value={fundForm.contribAmt}
+                  onChange={e=>{
+                    const v=e.target.value;
+                    const amt=parseFloat(v)||0;
+                    const base=fundForm.prevCost||0;
+                    setFundForm(f=>({...f,contribAmt:v,cost:v===""?String(base||""):String(+(base+amt).toFixed(2))}));
+                  }} placeholder="New money added this time"
+                  style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 12px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
+                <div style={{fontSize:9,color:TH.muted,marginTop:4}}>Type just the new baht you're adding — Cost below updates for you{fundFormMode==="edit"?` (previous Cost: ${fmt(fundForm.prevCost||0)})`:""}. Or skip this and type the full running total straight into Cost.</div>
+              </div>
+
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:14}}>
                 <div>
                   <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>NAV (฿)</label>
@@ -3627,7 +3643,7 @@ export default function App(){
                 <div>
                   <label style={{fontSize:10,fontWeight:700,color:TH.muted,textTransform:"uppercase",letterSpacing:".05em"}}>Cost (฿)</label>
                   <input type="number" min="0" step="0.01" inputMode="decimal" value={fundForm.cost}
-                    onChange={e=>setFundForm(f=>({...f,cost:e.target.value}))} placeholder="0.00"
+                    onChange={e=>setFundForm(f=>({...f,cost:e.target.value,contribAmt:""}))} placeholder="0.00"
                     style={{width:"100%",marginTop:5,background:TH.surf,border:`1px solid ${TH.border}`,borderRadius:12,padding:"11px 8px",fontSize:13,color:TH.text,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
                 </div>
               </div>
