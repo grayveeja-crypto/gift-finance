@@ -1334,7 +1334,11 @@ export default function App(){
       // ── Tax & Match ─────────────────────────────────────────────────────
       // RMF/SSF contributions this year = cost-basis growth of your "Personal" holdings (the
       // RMF/SSF funds you DCA into yourself, as opposed to PVD funds under "Retirement").
-      const annualRmfSsf = annualContribution(holdingsHistory.filter(h=>h.type==="Personal"), "code", "cost", currentYear);
+      // Reuses the same opening-cost-aware PERSONAL_CONTRIB figure as the Personal Contributions
+      // card (computed further down as a plain derived value) instead of calling annualContribution
+      // directly — that raw version has no way to exclude cost basis built up before she started
+      // logging a fund in-app, so it was overstating this figure for any fund first logged this year.
+      const annualRmfSsf = personalContribThisYear;
       const pvdMonthsThisYear = spendingMonths.filter(m=>+String(m.m).trim().split(" ")[1]===currentYear && m.pvdEmployeePct!=null);
       const avgMonthlyPvd = pvdMonthsThisYear.length
         ? pvdMonthsThisYear.reduce((s,m)=>s+Math.round((m.grossIncome||latestGrossIncome||GROSS_INCOME)*m.pvdEmployeePct/100),0)/pvdMonthsThisYear.length
