@@ -1352,9 +1352,15 @@ export default function App(){
       const taxBracket = TAX_BRACKET_PCT/100;
       const pvdSaved = Math.round(annualPvd*taxBracket);
       const rmfSaved = Math.round(rmfSsfCounted*taxBracket);
+      // Tax score is deliberately NOT graded on how much of the RMF/SSF/PVD room you've filled —
+      // topping that up is a voluntary extra investment choice, not an obligation, and grading it
+      // like a failure (previously 60% of this score) punished her mid-year for room she still had
+      // 3 months left to use, or simply chose not to fill at all. PVD rate is the one piece that's
+      // closer to "free money on the table" (employer-matched, elected once via payroll) rather than
+      // an ongoing squeeze-every-baht decision, so that's what the grade reflects. "Room left" stays
+      // purely informational in the tip below, not scored.
       const pvdUtil = Math.min(100, (PVD_EMPLOYEE_PCT/15)*100);
-      const rmfUtil = capRemainingAfterPvd>0 ? Math.min(100, annualRmfSsf/capRemainingAfterPvd*100) : 100;
-      const taxScore = Math.round(pvdUtil*0.4 + rmfUtil*0.6);
+      const taxScore = Math.round(pvdUtil);
       const taxGrade = scoreToGrade(taxScore);
       const room = Math.max(0, capRemainingAfterPvd-rmfSsfCounted);
       const taxVerdict = `PVD ${fd(PVD_EMPLOYEE_PCT,0)}% + RMF/SSF ~${fmt(annualRmfSsf)}/yr saving an estimated ${fmt(pvdSaved+rmfSaved)}/year in tax at your ${fd(TAX_BRACKET_PCT,0)}% bracket.`;
