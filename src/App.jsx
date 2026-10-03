@@ -210,6 +210,25 @@ function annualContribution(rows, key, field, year){
   return total;
 }
 
+// Per-fund, per-year contribution breakdown — same cost-basis-diff logic as annualContribution,
+// just split out by fund code instead of summed, so she can see "how much did I put into each
+// RMF/SSF fund this year" without doing the math herself (e.g. for her annual tax filing).
+function fundAnnualContributions(rows){
+  const byCode = {};
+  rows.forEach(r=>{ if(!r.month) return; (byCode[r.code]=byCode[r.code]||[]).push(r); });
+  const years = Array.from(new Set(rows.map(r=>+String(r.month).trim().split(" ")[1]).filter(y=>isFinite(y)))).sort((a,b)=>a-b);
+  const funds = Object.entries(byCode).map(([code,arr])=>{
+    const sorted = arr.slice().sort((a,b)=>monthRank(a.month)-monthRank(b.month));
+    const name = sorted[sorted.length-1]?.name || code;
+    const byYear = {};
+    years.forEach(y=>{ byYear[y] = annualContribution(sorted,"code","cost",y); });
+    const total = Object.values(byYear).reduce((s,v)=>s+v,0);
+    return { code, name, byYear, total };
+  }).filter(f=>f.total>0).sort((a,b)=>b.total-a.total);
+  const yearTotals = years.map(y=>({ year:y, total: funds.reduce((s,f)=>s+(f.byYear[y]||0),0) }));
+  return { years, funds, yearTotals };
+}
+
 // Strip emojis + leading/trailing space from category names
 function cleanCat(s){
   return String(s||"Other").replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g,"").replace(/[\u2600-\u27BF]/g,"").replace(/\s+/g," ").trim()||"Other";
@@ -1452,6 +1471,10 @@ export default function App(){
     if(TOTAL>0) flows.push({ date:new Date(), amount:TOTAL });
     return xirr(flows);
   })();
+  // Personal (RMF/SSF) contribution breakdown, by fund and by year — for her annual tax filing.
+  // Scoped to type==="Personal" only; PVD is tracked separately via the logged PVD% in Edit Income.
+  const PERSONAL_CONTRIB = fundAnnualContributions(holdingsHistory.filter(h=>h.type==="Personal"));
+  const personalContribThisYear = PERSONAL_CONTRIB.yearTotals.find(y=>y.year===new Date().getFullYear())?.total||0;
   const CM       = spendingMonths[selMonth]||spendingMonths[spendingMonths.length-1]||FB_SP[1];
   const INCOME   = CM.income||cashFlow.income||75400;
   const TXNS     = [...(CM.transactions||[])].reverse();
@@ -2691,6 +2714,33 @@ export default function App(){
                     </div>
                     <div style={{fontSize:11,color:TH.muted,marginBottom:8}}>{wealthData.tax.verdict}</div>
                     {wealthData.tax.tip&&<div style={{padding:"10px 12px",background:"rgba(99,102,241,0.06)",border:"1px solid rgba(99,102,241,0.15)",borderRadius:10,fontSize:11,color:TH.text2,lineHeight:1.5}}><span style={{color:TH.accent,fontWeight:700}}>💡 Tip: </span>{wealthData.tax.tip}</div>}
+                  </div>
+                )}
+
+                {/* Personal Contributions (RMF/SSF) — always visible, doesn't require Run Full Analysis */}
+                {PERSONAL_CONTRIB.funds.length>0&&(
+                  <div style={dcStyle}>
+                    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
+                      <span style={{fontSize:18}}>🧾</span>
+                      <div style={{flex:1,fontSize:12,fontWeight:700,color:TH.text}}>Personal Contributions (RMF/SSF)</div>
+                      <span style={{fontSize:12,fontWeight:800,color:TH.text2}}>{new Date().getFullYear()}</span>
+                    </div>
+                    <div style={{padding:"12px",background:"rgba(99,102,241,0.06)",border:"1px solid rgba(99,102,241,0.15)",borderRadius:12,marginBottom:12,textAlign:"center"}}>
+                      <div style={{fontSize:9,color:TH.muted,marginBottom:4}}>Total contributed this year</div>
+                      <div style={{fontFamily:TH.mono,fontSize:22,fontWeight:900,color:TH.accent}}>฿{personalContribThisYear.toLocaleString()}</div>
+                    </div>
+                    {PERSONAL_CONTRIB.funds.map(f=>(
+                      <div key={f.code} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:`1px solid ${TH.border}`}}>
+                        <div style={{fontSize:11,color:TH.text2}}>{f.name}</div>
+                        <div style={{fontFamily:TH.mono,fontSize:12,fontWeight:700,color:TH.text}}>฿{(f.byYear[new Date().getFullYear()]||0).toLocaleString()}</div>
+                      </div>
+                    ))}
+                    {PERSONAL_CONTRIB.years.length>1&&(
+                      <div style={{fontSize:10,color:TH.muted,marginTop:10}}>
+                        {PERSONAL_CONTRIB.yearTotals.filter(y=>y.year!==new Date().getFullYear()).map(y=>`${y.year}: ฿${y.total.toLocaleString()}`).join(" · ")}
+                      </div>
+                    )}
+                    <div style={{fontSize:9,color:TH.dim,fontStyle:"italic",marginTop:10}}>Based on the Cost value logged each time you update a fund — matches what you'd report as RMF/SSF contributions for tax purposes.</div>
                   </div>
                 )}
 
@@ -4929,6 +4979,33 @@ export default function App(){
               <div style={{fontSize:10,color:TH.muted,marginBottom:6}}>{wealthData.tax.verdict}</div>
               {wealthData.tax.tip&&<div style={{padding:"8px 10px",background:"rgba(99,102,241,0.06)",border:"1px solid rgba(99,102,241,0.15)",borderRadius:10,fontSize:10,color:TH.text2,marginBottom:6}}><span style={{color:TH.accent,fontWeight:700}}>Tip: </span>{wealthData.tax.tip}</div>}
               <div style={{fontSize:8,color:TH.dim,fontStyle:"italic"}}>Estimate based on standard RMF/SSF/PVD deduction rules — not tax advice.</div>
+            </div>
+          )}
+
+          {/* Personal Contributions (RMF/SSF) — always visible, doesn't require Run Full Analysis */}
+          {PERSONAL_CONTRIB.funds.length>0&&(
+            <div style={{borderRadius:18,background:TH.surf,border:`1px solid ${TH.border}`,padding:"14px 15px"}}>
+              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
+                <div style={{width:28,height:28,borderRadius:8,background:"rgba(99,102,241,0.15)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14}}>🧾</div>
+                <div style={{flex:1,fontSize:12,fontWeight:700,color:TH.text}}>Personal Contributions (RMF/SSF)</div>
+                <div style={{fontSize:11,fontWeight:800,color:TH.text2}}>{new Date().getFullYear()}</div>
+              </div>
+              <div style={{padding:"10px 12px",background:"rgba(99,102,241,0.06)",border:"1px solid rgba(99,102,241,0.15)",borderRadius:12,marginBottom:10,textAlign:"center"}}>
+                <div style={{fontSize:9,color:TH.muted,marginBottom:3}}>Total contributed this year</div>
+                <div style={{fontFamily:TH.mono,fontSize:18,fontWeight:900,color:TH.accent}}>฿{personalContribThisYear.toLocaleString()}</div>
+              </div>
+              {PERSONAL_CONTRIB.funds.map(f=>(
+                <div key={f.code} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 0",borderBottom:`1px solid ${TH.border}`}}>
+                  <div style={{fontSize:10,color:TH.text2}}>{f.name}</div>
+                  <div style={{fontFamily:TH.mono,fontSize:11,fontWeight:700,color:TH.text}}>฿{(f.byYear[new Date().getFullYear()]||0).toLocaleString()}</div>
+                </div>
+              ))}
+              {PERSONAL_CONTRIB.years.length>1&&(
+                <div style={{fontSize:9,color:TH.muted,marginTop:8}}>
+                  {PERSONAL_CONTRIB.yearTotals.filter(y=>y.year!==new Date().getFullYear()).map(y=>`${y.year}: ฿${y.total.toLocaleString()}`).join(" · ")}
+                </div>
+              )}
+              <div style={{fontSize:8,color:TH.dim,fontStyle:"italic",marginTop:8}}>Based on the Cost value logged each time you update a fund.</div>
             </div>
           )}
 
