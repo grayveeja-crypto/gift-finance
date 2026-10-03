@@ -37,6 +37,19 @@ const RETIRE_CURRENT_AGE = (()=>{
 })();
 const RETIRE_TARGET_AGE = 60;
 
+// Cost basis already built up in each Personal (RMF/SSF) fund BEFORE she started logging monthly
+// updates in this app (April 2026) — i.e. what she'd already invested in prior years. Without this,
+// "Personal Contributions this year" has no prior-year row to diff against for a fund's very first
+// logged entry, so it falls back to counting the ENTIRE cost (including pre-app history) as "this
+// year," wildly overstating new contributions. These four figures come from her own tracking sheet
+// (Starting Cost Basis column) and match the Cost she originally seeded each fund with in-app.
+const PERSONAL_OPENING_COST = {
+  "SCBRM2":        15000,
+  "SCBRMS&P500":   100000,
+  "SCBRMWORLD(A)": 50000,
+  "SCBSFF":        110000,
+};
+
 // ─── FALLBACK DATA ────────────────────────────────────────────────────────────
 const FB_H = [
   { code:"SCBRM2",           name:"SCB RMF Thai Equity",    type:"Personal",   cls:"Thai Equity",   value:17023.16,  cost:15000,     nav:15.8149, navPrev:15.3027, dailyPct:3.26,  totalPct:13.49, units:1076.40  },
@@ -210,21 +223,32 @@ function annualContribution(rows, key, field, year){
   return total;
 }
 
-// Per-fund, per-year contribution breakdown — same cost-basis-diff logic as annualContribution,
-// just split out by fund code instead of summed, so she can see "how much did I put into each
-// RMF/SSF fund this year" without doing the math herself (e.g. for her annual tax filing).
-function fundAnnualContributions(rows){
+// Per-fund, per-year contribution breakdown, so she can see "how much did I put into each RMF/SSF
+// fund this year" without doing the math herself (e.g. for her annual tax filing). Unlike
+// annualContribution (which assumes a fund's very first-ever logged entry started from ฿0), this
+// takes an optional per-code opening-cost map — the cost basis a fund already had BEFORE she
+// started logging it in the app — and uses that as the baseline for the fund's first logged year
+// instead of 0, so pre-app history never gets miscounted as "this year's" new money.
+function fundAnnualContributions(rows, openingCostByCode={}){
   const byCode = {};
   rows.forEach(r=>{ if(!r.month) return; (byCode[r.code]=byCode[r.code]||[]).push(r); });
   const years = Array.from(new Set(rows.map(r=>+String(r.month).trim().split(" ")[1]).filter(y=>isFinite(y)))).sort((a,b)=>a-b);
   const funds = Object.entries(byCode).map(([code,arr])=>{
     const sorted = arr.slice().sort((a,b)=>monthRank(a.month)-monthRank(b.month));
     const name = sorted[sorted.length-1]?.name || code;
+    const openingCost = openingCostByCode[code]||0;
     const byYear = {};
-    years.forEach(y=>{ byYear[y] = annualContribution(sorted,"code","cost",y); });
+    let priorYearEndCost = openingCost;
+    years.forEach(y=>{
+      const entriesThisYear = sorted.filter(r=>+String(r.month).trim().split(" ")[1]===y);
+      if(entriesThisYear.length===0){ byYear[y]=0; return; }
+      const latest = entriesThisYear[entriesThisYear.length-1].cost||0;
+      byYear[y] = Math.max(0, latest-priorYearEndCost);
+      priorYearEndCost = latest;
+    });
     const total = Object.values(byYear).reduce((s,v)=>s+v,0);
-    return { code, name, byYear, total };
-  }).filter(f=>f.total>0).sort((a,b)=>b.total-a.total);
+    return { code, name, byYear, total, openingCost };
+  }).filter(f=>f.total>0||f.openingCost>0).sort((a,b)=>b.total-a.total);
   const yearTotals = years.map(y=>({ year:y, total: funds.reduce((s,f)=>s+(f.byYear[y]||0),0) }));
   return { years, funds, yearTotals };
 }
@@ -1473,7 +1497,7 @@ export default function App(){
   })();
   // Personal (RMF/SSF) contribution breakdown, by fund and by year — for her annual tax filing.
   // Scoped to type==="Personal" only; PVD is tracked separately via the logged PVD% in Edit Income.
-  const PERSONAL_CONTRIB = fundAnnualContributions(holdingsHistory.filter(h=>h.type==="Personal"));
+  const PERSONAL_CONTRIB = fundAnnualContributions(holdingsHistory.filter(h=>h.type==="Personal"), PERSONAL_OPENING_COST);
   const personalContribThisYear = PERSONAL_CONTRIB.yearTotals.find(y=>y.year===new Date().getFullYear())?.total||0;
   const CM       = spendingMonths[selMonth]||spendingMonths[spendingMonths.length-1]||FB_SP[1];
   const INCOME   = CM.income||cashFlow.income||75400;
