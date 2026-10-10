@@ -746,7 +746,14 @@ export default function App(){
   const gridBase = CAT_GRID_ORDER.filter(c=>!RETIRED_STATIC_CATS.includes(c));
   const liveGoalNames = [emergencyGoalRow, ...customGoals].filter(Boolean).map(g=>g.name);
   const CAT_GRID_LIVE = [...gridBase.slice(0,retiredIdx), ...liveGoalNames, ...gridBase.slice(retiredIdx)];
-  const ALL_CATS = Array.from(new Set([...CAT_GRID_LIVE, ...categoriesDB.map(c=>c.name)]));
+  // "Misc" is a catch-all, so it reads better pinned to the very end of every category list
+  // (Add Expense grid, Manage Categories) instead of sitting wherever CAT_GRID_ORDER happens to
+  // place it — sort it out and append it last rather than reordering anything else.
+  const ALL_CATS = (()=>{
+    const cats = Array.from(new Set([...CAT_GRID_LIVE, ...categoriesDB.map(c=>c.name)]));
+    const misc = cats.filter(c=>c==="Misc");
+    return [...cats.filter(c=>c!=="Misc"), ...misc];
+  })();
   // Add Expense's category grid — same as above, minus anything she's hidden from Manage
   // Categories (a goal is never hidden this way — delete the goal itself to remove it).
   const CAT_GRID_ALL = ALL_CATS.filter(name=>{
